@@ -11,7 +11,7 @@ Item {
   readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") !== ""
     ? Quickshell.env("XDG_CONFIG_HOME") : Quickshell.env("HOME") + "/.config"
   readonly property string helper: configHome
-    + "/omarchy/plugins/io.github.rawritude.floating-mode/bin/floating-mode"
+    + "/omarchy/plugins/io.github.jwm.floating-mode/bin/floating-mode"
 
   Process {
     id: syncProc

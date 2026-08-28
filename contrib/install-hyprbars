@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-plugin_id=io.github.rawritude.floating-mode
+plugin_id=io.github.jwm.floating-mode
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-floating-mode"

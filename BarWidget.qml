@@ -6,7 +6,7 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "io.github.rawritude.floating-mode"
+  moduleName: "io.github.jwm.floating-mode"
 
   property bool floatingMode: false
   property bool busy: false
@@ -15,7 +15,7 @@ BarWidget {
   readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") !== ""
     ? Quickshell.env("XDG_CONFIG_HOME") : Quickshell.env("HOME") + "/.config"
   readonly property string helper: configHome
-    + "/omarchy/plugins/io.github.rawritude.floating-mode/bin/floating-mode"
+    + "/omarchy/plugins/io.github.jwm.floating-mode/bin/floating-mode"
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
