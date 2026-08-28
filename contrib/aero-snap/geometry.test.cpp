@@ -70,6 +70,9 @@ int main() {
     expectRect(*AeroSnap::rectForZone(workArea, Zone::RightHalf, 10, 10, 3), Rect{2053, 36, 2033, 1106}, "right half ignores the three-column layout");
     expectRect(*AeroSnap::rectForZone(workArea, Zone::BottomRight, 10, 10, 3), Rect{2053, 594, 2033, 548}, "quarters remain halves of the work area");
     expectRect(*AeroSnap::rectForZone(workArea, Zone::Maximize, 10, 10, 3), workArea, "maximize uses the complete work area");
+    expectRect(*AeroSnap::rectForZone(workArea, Zone::Left, 0, 0, 3), Rect{10, 36, 4076.0 / 3.0, 1106}, "gapless columns consume the complete width");
+    expectRect(*AeroSnap::rectForZone(workArea, Zone::RightHalf, 0, 0, 3), Rect{2048, 36, 2038, 1106}, "gapless halves meet without spacing");
+    expectRect(*AeroSnap::rectForZone(workArea, Zone::BottomRight, 0, 0, 3), Rect{2048, 589, 2038, 553}, "gapless quarters meet without spacing");
     expect(!AeroSnap::rectForZone(workArea, Zone::Center, 10, 10, 2), "center is unavailable in two-column mode");
     expect(!AeroSnap::rectForZone(Rect{0, 0, 8, 8}, Zone::Left, 10, 10, 3), "impossible geometry is rejected");
 

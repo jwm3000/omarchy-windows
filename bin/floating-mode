@@ -14,6 +14,7 @@ settings_dir="$config_home/omarchy-floating-mode"
 focus_border_disabled_file="$settings_dir/focus-border-disabled"
 left_snap_half_file="$settings_dir/left-snap-half"
 right_snap_half_file="$settings_dir/right-snap-half"
+snap_gaps_disabled_file="$settings_dir/snap-gaps-disabled"
 keybindings_marker="$state_dir/keybindings"
 managed_max_bytes=8192
 managed_max_entries=256
@@ -280,7 +281,7 @@ prepare_settings_dir() {
     validate_private_dir "$settings_dir" "settings directory"
   fi
   chmod 700 -- "$settings_dir"
-  for settings_file in "$focus_border_disabled_file" "$left_snap_half_file" "$right_snap_half_file"; do
+  for settings_file in "$focus_border_disabled_file" "$left_snap_half_file" "$right_snap_half_file" "$snap_gaps_disabled_file"; do
     if [[ -e "$settings_file" || -L "$settings_file" ]]; then
       "$state_helper" check "$settings_file"
     fi
@@ -301,6 +302,10 @@ snap_mode_status() {
   local marker="$1"
   prepare_settings_dir
   if [[ -e "$marker" || -L "$marker" ]]; then printf 'half\n'; else printf 'quarter\n'; fi
+}
+
+snap_gaps_enabled() {
+  [[ ! -e "$snap_gaps_disabled_file" && ! -L "$snap_gaps_disabled_file" ]]
 }
 
 focus_border_enabled() {
@@ -529,8 +534,20 @@ case "${1:-}" in
   snap-right-status)
     snap_mode_status "$right_snap_half_file"
     ;;
+  snap-gaps-on)
+    prepare_settings_dir
+    rm -f -- "$snap_gaps_disabled_file"
+    ;;
+  snap-gaps-off)
+    prepare_settings_dir
+    truncate_state_file "$snap_gaps_disabled_file"
+    ;;
+  snap-gaps-status)
+    prepare_settings_dir
+    if snap_gaps_enabled; then printf 'on\n'; else printf 'off\n'; fi
+    ;;
   *)
-    echo "usage: floating-mode on|off|toggle|sync|status|focus-border-on|focus-border-off|focus-border-status|snap-left-quarter|snap-left-half|snap-left-status|snap-right-quarter|snap-right-half|snap-right-status" >&2
+    echo "usage: floating-mode on|off|toggle|sync|status|focus-border-on|focus-border-off|focus-border-status|snap-left-quarter|snap-left-half|snap-left-status|snap-right-quarter|snap-right-half|snap-right-status|snap-gaps-on|snap-gaps-off|snap-gaps-status" >&2
     exit 2
     ;;
 esac

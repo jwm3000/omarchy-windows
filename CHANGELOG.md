@@ -2,6 +2,11 @@
 
 All notable changes to Floating Mode are documented here.
 
+## Unreleased
+
+- Corrected half-height geometry when snapping directly from fullscreen or maximized state
+- Added a persistent Gaps switch for drag and keyboard snapping, enabled by default
+
 ## 1.2.0 — 2026-08-28
 
 - Added Floating Mode-only keyboard snapping: Ctrl+Super+Left/Right selects the corresponding half and Ctrl+Super+Up maximizes the focused window

@@ -100,6 +100,7 @@ namespace {
         std::string               enabledMarker;
         std::string               leftHalfMarker;
         std::string               rightHalfMarker;
+        std::string               gapsDisabledMarker;
         std::optional<SPreview>   preview;
         std::optional<SDragState> drag;
         std::vector<SSnapRecord>  records;
@@ -321,8 +322,9 @@ namespace {
 
         static auto  gapsInValue   = CConfigValue<Config::IComplexConfigValue>("general:gaps_in");
         const auto*  gapsIn        = sc<Config::CCssGapData*>(gapsInValue.ptr());
-        const double horizontalGap = gapsIn->m_left + gapsIn->m_right;
-        const double verticalGap   = gapsIn->m_top + gapsIn->m_bottom;
+        const bool   gapsEnabled   = access(state->gapsDisabledMarker.c_str(), F_OK) != 0;
+        const double horizontalGap = gapsEnabled ? gapsIn->m_left + gapsIn->m_right : 0.0;
+        const double verticalGap   = gapsEnabled ? gapsIn->m_top + gapsIn->m_bottom : 0.0;
         const auto   zoneRect      = AeroSnap::rectForZone(toRect(workArea), zone, horizontalGap, verticalGap, columns);
         if (!zoneRect)
             return std::nullopt;
@@ -433,6 +435,12 @@ namespace {
             zone = Zone::Maximize;
         else
             return {.success = false, .error = "Expected left, right, maximize, or restore"};
+
+        // Fullscreen/maximized windows have different decoration extents.
+        // Leave that state before calculating the half so the client height
+        // is based on the restored titlebar and borders.
+        if (Fullscreen::controller()->isFullscreen(window))
+            Fullscreen::controller()->setFullscreenMode(window, Fullscreen::FSMODE_NONE);
 
         const auto monitor   = window->m_monitor.lock();
         const auto placement = placementFor(target, monitor, zone);
@@ -662,8 +670,9 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     const auto* home       = std::getenv("HOME");
     const auto  settingsDirectory = configHome && *configHome ? std::string{configHome} + "/omarchy-floating-mode" :
                                                                (home && *home ? std::string{home} + "/.config/omarchy-floating-mode" : std::string{});
-    state->leftHalfMarker  = settingsDirectory + "/left-snap-half";
-    state->rightHalfMarker = settingsDirectory + "/right-snap-half";
+    state->leftHalfMarker      = settingsDirectory + "/left-snap-half";
+    state->rightHalfMarker     = settingsDirectory + "/right-snap-half";
+    state->gapsDisabledMarker  = settingsDirectory + "/snap-gaps-disabled";
 
     state->config.enabled = makeShared<Config::Values::CBoolValue>("plugin:omarchy_windows_snap:enabled", "Enable Aero-style drag snap zones", true);
     state->config.floatingModeOnly =

@@ -12,6 +12,7 @@ BarWidget {
   property bool focusBorderEnabled: true
   property string leftSnapMode: "quarter"
   property string rightSnapMode: "quarter"
+  property bool snapGapsEnabled: true
   property bool busy: false
   property bool focusBorderBusy: false
   property bool snapBusy: false
@@ -39,6 +40,7 @@ BarWidget {
     if (!focusBorderStatusProc.running) focusBorderStatusProc.running = true
     if (!leftSnapStatusProc.running) leftSnapStatusProc.running = true
     if (!rightSnapStatusProc.running) rightSnapStatusProc.running = true
+    if (!snapGapsStatusProc.running) snapGapsStatusProc.running = true
   }
 
   function localized(de, en) {
@@ -79,6 +81,17 @@ BarWidget {
     snapActionProc.running = true
   }
 
+  function toggleSnapGaps() {
+    if (snapActionProc.running) return
+    snapBusy = true
+    lastError = ""
+    snapActionProc.command = [
+      root.helper,
+      root.snapGapsEnabled ? "snap-gaps-off" : "snap-gaps-on"
+    ]
+    snapActionProc.running = true
+  }
+
   Process {
     id: statusProc
     command: [root.helper, "status"]
@@ -112,6 +125,15 @@ BarWidget {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.rightSnapMode = String(text || "").trim() === "half" ? "half" : "quarter"
+    }
+  }
+
+  Process {
+    id: snapGapsStatusProc
+    command: [root.helper, "snap-gaps-status"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.snapGapsEnabled = String(text || "").trim() === "on"
     }
   }
 
@@ -158,6 +180,7 @@ BarWidget {
         root.lastError = root.localized("Snap-Einstellung konnte nicht geändert werden", "Could not change snap setting")
       if (leftSnapStatusProc.running) leftSnapStatusProc.running = false
       if (rightSnapStatusProc.running) rightSnapStatusProc.running = false
+      if (snapGapsStatusProc.running) snapGapsStatusProc.running = false
       Qt.callLater(root.refresh)
     }
   }
@@ -236,6 +259,21 @@ BarWidget {
         font.family: root.bar.fontFamily
         font.pixelSize: Style.font.subtitle
         font.bold: true
+      }
+
+      Toggle {
+        width: parent.width
+        label: root.localized("Abstände", "Gaps")
+        description: root.snapGapsEnabled
+          ? root.localized("Abstände zwischen eingerasteten Fenstern", "Spacing between snapped windows")
+          : root.localized("Eingerastete Fenster nutzen den ganzen Platz", "Snapped windows use all available space")
+        checked: root.snapGapsEnabled
+        foreground: root.bar.foreground
+        accent: Color.accent
+        fontFamily: root.bar.fontFamily
+        enabled: !root.snapBusy
+        opacity: enabled ? 1.0 : 0.55
+        onClicked: root.toggleSnapGaps()
       }
 
       Text {
