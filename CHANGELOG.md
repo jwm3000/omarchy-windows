@@ -2,6 +2,10 @@
 
 All notable changes to Floating Mode are documented here.
 
+## 1.3.1 — 2026-08-29
+
+- Restored the permanent marketplace plugin ID `io.github.rawritude.floating-mode` for update compatibility
+
 ## 1.3.0 — 2026-08-29
 
 - Opened, validated, locked, read, and wrote mutable state through the same no-follow, nonblocking file descriptors

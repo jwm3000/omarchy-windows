@@ -6,7 +6,7 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "io.github.jwm.floating-mode"
+  moduleName: "io.github.rawritude.floating-mode"
 
   property bool floatingMode: false
   property bool focusBorderEnabled: true
@@ -22,7 +22,7 @@ BarWidget {
   readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") !== ""
     ? Quickshell.env("XDG_CONFIG_HOME") : Quickshell.env("HOME") + "/.config"
   readonly property string helper: configHome
-    + "/omarchy/plugins/io.github.jwm.floating-mode/bin/floating-mode"
+    + "/omarchy/plugins/io.github.rawritude.floating-mode/bin/floating-mode"
   readonly property string sessionLocale: {
     var locale = Quickshell.env("LANGUAGE")
     if (locale === "") locale = Quickshell.env("LC_ALL")

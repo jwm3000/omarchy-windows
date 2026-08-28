@@ -63,8 +63,8 @@ Run these commands after the GitHub repository is public:
 
 ```bash
 omarchy plugin add https://github.com/jwm3000/omarchy-windows.git --enable --yes
-omarchy bar move io.github.jwm.floating-mode --section right
-~/.config/omarchy/plugins/io.github.jwm.floating-mode/contrib/install-hyprbars
+omarchy bar move io.github.rawritude.floating-mode --section right
+~/.config/omarchy/plugins/io.github.rawritude.floating-mode/contrib/install-hyprbars
 ```
 
 The final command is intentionally separate because Omarchy does not execute installation hooks or privileged commands when adding a plugin. Read [`contrib/install-hyprbars`](contrib/install-hyprbars) before running it if you want to review every system change.
@@ -137,7 +137,7 @@ omarchy plugin update --yes
 If an update changes `contrib/hyprbars.lua`, `contrib/aero-snap/`, or the bundled hyprbars patches, rerun:
 
 ```bash
-~/.config/omarchy/plugins/io.github.jwm.floating-mode/contrib/install-hyprbars
+~/.config/omarchy/plugins/io.github.rawritude.floating-mode/contrib/install-hyprbars
 ```
 
 Because Hyprland plugins are ABI-sensitive, rerun the installer after a Hyprland update if either native module no longer loads.
@@ -147,8 +147,8 @@ Because Hyprland plugins are ABI-sensitive, rerun the installer after a Hyprland
 First click the bar button to return to tiled mode. Then run:
 
 ```bash
-~/.config/omarchy/plugins/io.github.jwm.floating-mode/contrib/install-hyprbars --uninstall
-omarchy plugin remove io.github.jwm.floating-mode --yes
+~/.config/omarchy/plugins/io.github.rawritude.floating-mode/contrib/install-hyprbars --uninstall
+omarchy plugin remove io.github.rawritude.floating-mode --yes
 ```
 
 The uninstall step removes the added Lua configuration and snap module, restores the original `hyprbars.so` and its previous enabled state, reloads Hyprland, and removes the plugin's installer state.
@@ -156,7 +156,7 @@ The uninstall step removes the added Lua configuration and snap module, restores
 If the widget is unavailable while Floating Mode is still active, restore tiling manually before removing the plugin:
 
 ```bash
-~/.config/omarchy/plugins/io.github.jwm.floating-mode/bin/floating-mode off
+~/.config/omarchy/plugins/io.github.rawritude.floating-mode/bin/floating-mode off
 ```
 
 ## How it works
@@ -191,14 +191,14 @@ make -C contrib/aero-snap test all
 For a local test installation, clone or copy the repository to:
 
 ```text
-~/.config/omarchy/plugins/io.github.jwm.floating-mode
+~/.config/omarchy/plugins/io.github.rawritude.floating-mode
 ```
 
 Then rescan and enable it:
 
 ```bash
 omarchy-shell shell rescanPlugins
-omarchy plugin enable io.github.jwm.floating-mode
+omarchy plugin enable io.github.rawritude.floating-mode
 ```
 
 ## License
