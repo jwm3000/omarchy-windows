@@ -316,13 +316,15 @@ namespace {
         if (!workspace || !workspace->m_space)
             return std::nullopt;
 
-        const CBox   workArea          = workspace->m_space->workArea(zone == Zone::Maximize);
+        const bool   gapsEnabled       = access(state->gapsDisabledMarker.c_str(), F_OK) != 0;
+        // The floating work area keeps reserved regions (for example the bar)
+        // but does not inset the monitor by gaps_out.
+        const CBox   workArea          = workspace->m_space->workArea(zone == Zone::Maximize || !gapsEnabled);
         const auto   configuredColumns = state->config.columns->value();
         const int    columns           = AeroSnap::columnsForMonitor(toRect(monitor->logicalBox()), configuredColumns);
 
         static auto  gapsInValue   = CConfigValue<Config::IComplexConfigValue>("general:gaps_in");
         const auto*  gapsIn        = sc<Config::CCssGapData*>(gapsInValue.ptr());
-        const bool   gapsEnabled   = access(state->gapsDisabledMarker.c_str(), F_OK) != 0;
         const double horizontalGap = gapsEnabled ? gapsIn->m_left + gapsIn->m_right : 0.0;
         const double verticalGap   = gapsEnabled ? gapsIn->m_top + gapsIn->m_bottom : 0.0;
         const auto   zoneRect      = AeroSnap::rectForZone(toRect(workArea), zone, horizontalGap, verticalGap, columns);

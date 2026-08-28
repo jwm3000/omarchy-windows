@@ -5,7 +5,7 @@ All notable changes to Floating Mode are documented here.
 ## Unreleased
 
 - Corrected half-height geometry when snapping directly from fullscreen or maximized state
-- Added a persistent Gaps switch for drag and keyboard snapping, enabled by default
+- Added a persistent Gaps switch for drag and keyboard snapping, enabled by default; disabling it removes both inner and outer gaps
 
 ## 1.2.0 — 2026-08-28
 

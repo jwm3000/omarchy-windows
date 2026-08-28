@@ -89,7 +89,7 @@ Under **Window snap / Fenster-Snap**, the left and right screen edges can be con
 
 For example, with the right side set to **Half / Hälfte**, dragging to the upper-right or lower-right corner selects the complete right half instead of a quarter. Both choices persist across restarts and apply from the next window drag.
 
-The **Gaps / Abstände** switch is enabled by default. Turn it off to remove spacing between snapped windows for both drag snapping and the left/right keyboard shortcuts. The preference persists across restarts.
+The **Gaps / Abstände** switch is enabled by default. Turn it off to remove both inner spacing between snapped windows and outer spacing at the work-area edges for drag snapping and the left/right keyboard shortcuts. Reserved areas such as the bar remain untouched. The preference persists across restarts.
 
 ### Keyboard snapping
 
