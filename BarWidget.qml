@@ -10,8 +10,11 @@ BarWidget {
 
   property bool floatingMode: false
   property bool focusBorderEnabled: true
+  property string leftSnapMode: "quarter"
+  property string rightSnapMode: "quarter"
   property bool busy: false
   property bool focusBorderBusy: false
+  property bool snapBusy: false
   property bool settingsOpen: false
   property string lastError: ""
   readonly property string windowGlyph: String.fromCodePoint(0xF05B2)
@@ -19,6 +22,14 @@ BarWidget {
     ? Quickshell.env("XDG_CONFIG_HOME") : Quickshell.env("HOME") + "/.config"
   readonly property string helper: configHome
     + "/omarchy/plugins/io.github.jwm.floating-mode/bin/floating-mode"
+  readonly property string sessionLocale: {
+    var locale = Quickshell.env("LANGUAGE")
+    if (locale === "") locale = Quickshell.env("LC_ALL")
+    if (locale === "") locale = Quickshell.env("LC_MESSAGES")
+    if (locale === "") locale = Quickshell.env("LANG")
+    return String(locale || "en").toLowerCase()
+  }
+  readonly property bool german: sessionLocale.indexOf("de") === 0
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -26,6 +37,12 @@ BarWidget {
   function refresh() {
     if (!statusProc.running) statusProc.running = true
     if (!focusBorderStatusProc.running) focusBorderStatusProc.running = true
+    if (!leftSnapStatusProc.running) leftSnapStatusProc.running = true
+    if (!rightSnapStatusProc.running) rightSnapStatusProc.running = true
+  }
+
+  function localized(de, en) {
+    return german ? de : en
   }
 
   function toggleMode() {
@@ -54,6 +71,14 @@ BarWidget {
     focusBorderActionProc.running = true
   }
 
+  function setSnapMode(side, mode) {
+    if (snapActionProc.running) return
+    snapBusy = true
+    lastError = ""
+    snapActionProc.command = [root.helper, "snap-" + side + "-" + mode]
+    snapActionProc.running = true
+  }
+
   Process {
     id: statusProc
     command: [root.helper, "status"]
@@ -73,6 +98,24 @@ BarWidget {
   }
 
   Process {
+    id: leftSnapStatusProc
+    command: [root.helper, "snap-left-status"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.leftSnapMode = String(text || "").trim() === "half" ? "half" : "quarter"
+    }
+  }
+
+  Process {
+    id: rightSnapStatusProc
+    command: [root.helper, "snap-right-status"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.rightSnapMode = String(text || "").trim() === "half" ? "half" : "quarter"
+    }
+  }
+
+  Process {
     id: actionProc
     stderr: StdioCollector {
       waitForEnd: true
@@ -80,7 +123,8 @@ BarWidget {
     }
     onExited: function(code) {
       root.busy = false
-      if (code !== 0 && root.lastError === "") root.lastError = "Could not change window mode"
+      if (code !== 0 && root.lastError === "")
+        root.lastError = root.localized("Fenstermodus konnte nicht geändert werden", "Could not change window mode")
       // Discard any poll that started before the action and force a new read.
       if (statusProc.running) statusProc.running = false
       Qt.callLater(root.refresh)
@@ -95,8 +139,25 @@ BarWidget {
     }
     onExited: function(code) {
       root.focusBorderBusy = false
-      if (code !== 0 && root.lastError === "") root.lastError = "Could not change focus border"
+      if (code !== 0 && root.lastError === "")
+        root.lastError = root.localized("Fokusrahmen konnte nicht geändert werden", "Could not change focus border")
       if (focusBorderStatusProc.running) focusBorderStatusProc.running = false
+      Qt.callLater(root.refresh)
+    }
+  }
+
+  Process {
+    id: snapActionProc
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.lastError = String(text || "").trim()
+    }
+    onExited: function(code) {
+      root.snapBusy = false
+      if (code !== 0 && root.lastError === "")
+        root.lastError = root.localized("Snap-Einstellung konnte nicht geändert werden", "Could not change snap setting")
+      if (leftSnapStatusProc.running) leftSnapStatusProc.running = false
+      if (rightSnapStatusProc.running) rightSnapStatusProc.running = false
       Qt.callLater(root.refresh)
     }
   }
@@ -120,8 +181,8 @@ BarWidget {
     tooltipText: root.lastError !== ""
       ? root.lastError
       : (root.floatingMode
-          ? "Floating mode ON — click to tile · right-click for settings"
-          : "Floating mode OFF — click to float · right-click for settings")
+          ? root.localized("Floating Mode AN — Klick für Kacheln · Rechtsklick für Einstellungen", "Floating Mode ON — click to tile · right-click for settings")
+          : root.localized("Floating Mode AUS — Klick für freie Fenster · Rechtsklick für Einstellungen", "Floating Mode OFF — click to float · right-click for settings"))
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.RightButton) root.settingsOpen = !root.settingsOpen
       else if (buttonCode === Qt.LeftButton) root.toggleMode()
@@ -134,7 +195,7 @@ BarWidget {
     bar: root.bar
     owner: root
     open: root.settingsOpen
-    contentWidth: settingsPopup.fittedContentWidth(Style.space(280))
+    contentWidth: settingsPopup.fittedContentWidth(Style.space(340))
     contentHeight: settingsPopup.fittedContentHeight(settingsColumn.implicitHeight)
 
     Column {
@@ -152,10 +213,10 @@ BarWidget {
 
       Toggle {
         width: parent.width
-        label: "Fokusrahmen"
+        label: root.localized("Fokusrahmen", "Focus border")
         description: root.focusBorderEnabled
-          ? "Aktives Fenster behält seine Fokusfarbe"
-          : "Aktives Fenster nutzt die inaktive Rahmenfarbe"
+          ? root.localized("Aktives Fenster behält seine Fokusfarbe", "Active window keeps its focus color")
+          : root.localized("Aktives Fenster nutzt die inaktive Rahmenfarbe", "Active window uses the inactive border color")
         checked: root.focusBorderEnabled
         foreground: root.bar.foreground
         accent: Color.accent
@@ -163,6 +224,64 @@ BarWidget {
         enabled: !root.focusBorderBusy
         opacity: enabled ? 1.0 : 0.55
         onClicked: root.toggleFocusBorder()
+      }
+
+      PanelSeparator {
+        foreground: root.bar.foreground
+      }
+
+      Text {
+        text: root.localized("Fenster-Snap", "Window snap")
+        color: root.bar.foreground
+        font.family: root.bar.fontFamily
+        font.pixelSize: Style.font.subtitle
+        font.bold: true
+      }
+
+      Text {
+        text: root.localized("Linker Bildschirmrand", "Left screen edge")
+        color: root.bar.foreground
+        font.family: root.bar.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+
+      ButtonGroup {
+        options: [
+          { value: "quarter", label: root.localized("Viertel", "Quarters") },
+          { value: "half", label: root.localized("Hälfte", "Half") }
+        ]
+        value: root.leftSnapMode
+        foreground: root.bar.foreground
+        background: Color.background
+        accent: Color.accent
+        fontFamily: root.bar.fontFamily
+        focusable: !root.snapBusy
+        enabled: !root.snapBusy
+        opacity: root.snapBusy ? 0.55 : 1.0
+        onChanged: function(value) { root.setSnapMode("left", value) }
+      }
+
+      Text {
+        text: root.localized("Rechter Bildschirmrand", "Right screen edge")
+        color: root.bar.foreground
+        font.family: root.bar.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+
+      ButtonGroup {
+        options: [
+          { value: "quarter", label: root.localized("Viertel", "Quarters") },
+          { value: "half", label: root.localized("Hälfte", "Half") }
+        ]
+        value: root.rightSnapMode
+        foreground: root.bar.foreground
+        background: Color.background
+        accent: Color.accent
+        fontFamily: root.bar.fontFamily
+        focusable: !root.snapBusy
+        enabled: !root.snapBusy
+        opacity: root.snapBusy ? 0.55 : 1.0
+        onChanged: function(value) { root.setSnapMode("right", value) }
       }
     }
   }

@@ -21,8 +21,10 @@ namespace AeroSnap {
     enum class Zone {
         None,
         Left,
+        LeftHalf,
         Center,
         Right,
+        RightHalf,
         TopLeft,
         TopRight,
         BottomLeft,
@@ -71,7 +73,8 @@ namespace AeroSnap {
         };
     }
 
-    inline Zone zoneAt(const Point cursor, const Rect monitor, const double edgeThreshold, const double cornerRatio, const int columns) {
+    inline Zone zoneAt(const Point cursor, const Rect monitor, const double edgeThreshold, const double cornerRatio, const int columns, const bool leftQuarters = true,
+                       const bool rightQuarters = true) {
         if (monitor.w <= 0 || monitor.h <= 0 || edgeThreshold < 0)
             return Zone::None;
 
@@ -85,9 +88,13 @@ namespace AeroSnap {
         const bool inTopRegion    = cursor.y <= monitor.y + monitor.h * ratio;
         const bool inBottomRegion = cursor.y >= monitor.y + monitor.h * (1.0 - ratio);
 
-        if ((nearTop && inLeftRegion) || (nearLeft && inTopRegion))
+        if (!leftQuarters && (nearLeft || ((nearTop || nearBottom) && inLeftRegion)))
+            return Zone::LeftHalf;
+        if (!rightQuarters && (nearRight || ((nearTop || nearBottom) && inRightRegion)))
+            return Zone::RightHalf;
+        if (leftQuarters && ((nearTop && inLeftRegion) || (nearLeft && inTopRegion)))
             return Zone::TopLeft;
-        if ((nearTop && inRightRegion) || (nearRight && inTopRegion))
+        if (rightQuarters && ((nearTop && inRightRegion) || (nearRight && inTopRegion)))
             return Zone::TopRight;
         if (nearBottom && columns == 3) {
             if (cursor.x < monitor.x + monitor.w / 3.0)
@@ -96,9 +103,9 @@ namespace AeroSnap {
                 return Zone::Right;
             return Zone::Center;
         }
-        if ((nearBottom && inLeftRegion) || (nearLeft && inBottomRegion))
+        if (leftQuarters && ((nearBottom && inLeftRegion) || (nearLeft && inBottomRegion)))
             return Zone::BottomLeft;
-        if ((nearBottom && inRightRegion) || (nearRight && inBottomRegion))
+        if (rightQuarters && ((nearBottom && inRightRegion) || (nearRight && inBottomRegion)))
             return Zone::BottomRight;
         if (nearTop)
             return Zone::Maximize;
@@ -126,11 +133,13 @@ namespace AeroSnap {
 
         switch (zone) {
             case Zone::Left: return Rect{workArea.x, workArea.y, columnWidth, workArea.h};
+            case Zone::LeftHalf: return Rect{workArea.x, workArea.y, halfWidth, workArea.h};
             case Zone::Center:
                 if (columnCount != 3)
                     return std::nullopt;
                 return Rect{workArea.x + columnWidth + horizontalGap, workArea.y, columnWidth, workArea.h};
             case Zone::Right: return Rect{workArea.x + (columnWidth + horizontalGap) * (columnCount - 1), workArea.y, columnWidth, workArea.h};
+            case Zone::RightHalf: return Rect{workArea.x + halfWidth + horizontalGap, workArea.y, halfWidth, workArea.h};
             case Zone::TopLeft: return Rect{workArea.x, workArea.y, halfWidth, rowHeight};
             case Zone::TopRight: return Rect{workArea.x + halfWidth + horizontalGap, workArea.y, halfWidth, rowHeight};
             case Zone::BottomLeft: return Rect{workArea.x, workArea.y + rowHeight + verticalGap, halfWidth, rowHeight};

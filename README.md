@@ -76,11 +76,20 @@ Click the overlapping-windows icon in the Omarchy bar:
 - Click again: managed windows return directly to tiling
 - Right-click: open the Floating Mode settings
 
-The **Fokusrahmen** switch controls the active-window border while Floating Mode is on. Leave it enabled to keep the configured focus color, or disable it to give the focused window the same border color as inactive windows. The normal focus border is restored automatically when Floating Mode is turned off, and the preference persists across shell and login restarts.
+The menu automatically follows the desktop locale: German for a `de*` locale, English otherwise.
+
+The **Focus border / Fokusrahmen** switch controls the active-window border while Floating Mode is on. Leave it enabled to keep the configured focus color, or disable it to give the focused window the same border color as inactive windows. The normal focus border is restored automatically when Floating Mode is turned off, and the preference persists across shell and login restarts.
+
+Under **Window snap / Fenster-Snap**, the left and right screen edges can be configured independently:
+
+- **Quarters / Viertel** keeps the upper and lower quarter zones on that side
+- **Half / Hälfte** makes every edge and corner target on that side use the full-height half
+
+For example, with the right side set to **Half / Hälfte**, dragging to the upper-right or lower-right corner selects the complete right half instead of a quarter. Both choices persist across restarts and apply from the next window drag.
 
 In Floating Mode, use either the native titlebar or `Super`+drag to move a window:
 
-- Drag to the left or right edge for an outer full-height column
+- Drag to the left or right edge for an outer full-height column, or the configured half
 - In three-column mode, the bottom edge is split into equal left, center, and right full-height targets
 - Drag to an upper corner or the upper/lower section of a side edge for a quarter-screen window
 - Drag to the top center to maximize

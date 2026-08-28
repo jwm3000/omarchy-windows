@@ -2,6 +2,13 @@
 
 All notable changes to Floating Mode are documented here.
 
+## 1.1.0 — 2026-08-28
+
+- Localized the complete bar tooltip and settings menu automatically from the desktop locale: German for `de*`, English otherwise
+- Added independent left- and right-edge snap choices for quarter zones or an always-full-height half
+- Made snap-side preferences persistent across shell, Hyprland, and login restarts
+- Added geometry coverage for all four independently configurable corner zones
+
 ## 1.0.15 — 2026-08-28
 
 - Added a right-click settings menu to the Floating Mode bar icon

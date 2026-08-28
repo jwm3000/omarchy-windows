@@ -33,6 +33,7 @@ Normal user writes:
 
 - `~/.config/hypr/floating-mode.lua`
 - One exact `require("hypr.floating-mode")` line in `~/.config/hypr/hyprland.lua`
+- `~/.config/omarchy-floating-mode/` for persistent focus-border and per-side snap preferences
 - `$XDG_DATA_HOME/omarchy-floating-mode/omarchy-windows-snap-<binary-hash>.so`
 - `$XDG_STATE_HOME/omarchy-floating-mode/` for the original module and previous enabled state
 - `$XDG_RUNTIME_DIR/omarchy-floating-mode/` for session-only window state

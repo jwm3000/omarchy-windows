@@ -28,6 +28,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
@@ -89,11 +90,15 @@ namespace {
         CBox                      startBox;
         std::optional<SPlacement> candidate;
         bool                      modeActive = false;
+        bool                      leftQuarters = true;
+        bool                      rightQuarters = true;
     };
 
     struct SPluginState {
         SConfigValues             config;
         std::string               enabledMarker;
+        std::string               leftHalfMarker;
+        std::string               rightHalfMarker;
         std::optional<SPreview>   preview;
         std::optional<SDragState> drag;
         std::vector<SSnapRecord>  records;
@@ -437,7 +442,14 @@ namespace {
             return;
         }
         if (!state->drag || state->drag->target != target)
-            state->drag = SDragState{target, target->position(), std::nullopt, floatingModeActive()};
+            state->drag = SDragState{
+                target,
+                target->position(),
+                std::nullopt,
+                floatingModeActive(),
+                !std::filesystem::exists(state->leftHalfMarker),
+                !std::filesystem::exists(state->rightHalfMarker),
+            };
 
         if (!state->drag->modeActive)
             return;
@@ -464,7 +476,8 @@ namespace {
         const auto monitorBox        = monitor->logicalBox();
         const auto configuredColumns = state->config.columns->value();
         const int  columns           = AeroSnap::columnsForMonitor(toRect(monitorBox), configuredColumns);
-        const auto zone      = AeroSnap::zoneAt({cursor.x, cursor.y}, toRect(monitorBox), state->config.edgeThreshold->value(), state->config.cornerRatio->value(), columns);
+        const auto zone = AeroSnap::zoneAt({cursor.x, cursor.y}, toRect(monitorBox), state->config.edgeThreshold->value(), state->config.cornerRatio->value(), columns,
+                                           state->drag->leftQuarters, state->drag->rightQuarters);
         const auto placement = placementFor(target, monitor, zone);
         if (!placement) {
             clearPreview();
@@ -565,6 +578,12 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     const auto* runtimeDirectory = std::getenv("XDG_RUNTIME_DIR");
     state->enabledMarker         = runtimeDirectory && *runtimeDirectory ? std::string{runtimeDirectory} + "/omarchy-floating-mode/enabled" :
                                                                            "/run/user/" + std::to_string(getuid()) + "/omarchy-floating-mode/enabled";
+    const auto* configHome = std::getenv("XDG_CONFIG_HOME");
+    const auto* home       = std::getenv("HOME");
+    const auto  settingsDirectory = configHome && *configHome ? std::string{configHome} + "/omarchy-floating-mode" :
+                                                               (home && *home ? std::string{home} + "/.config/omarchy-floating-mode" : std::string{});
+    state->leftHalfMarker  = settingsDirectory + "/left-snap-half";
+    state->rightHalfMarker = settingsDirectory + "/right-snap-half";
 
     state->config.enabled = makeShared<Config::Values::CBoolValue>("plugin:omarchy_windows_snap:enabled", "Enable Aero-style drag snap zones", true);
     state->config.floatingModeOnly =

@@ -55,12 +55,19 @@ int main() {
     expect(AeroSnap::zoneAt(Point{100, 1151}, ultrawide, 12, 0.25, 2) == Zone::BottomLeft, "two-column mode keeps the bottom-left corner");
     expect(AeroSnap::zoneAt(Point{2048, 1151}, ultrawide, 12, 0.25, 2) == Zone::None, "two-column mode leaves bottom center untouched");
     expect(AeroSnap::zoneAt(Point{500, 500}, ultrawide, 12, 0.25, 3) == Zone::None, "interior movement is untouched");
+    expect(AeroSnap::zoneAt(Point{0, 100}, ultrawide, 12, 0.25, 3, false, true) == Zone::LeftHalf, "left half mode replaces the upper-left quarter");
+    expect(AeroSnap::zoneAt(Point{0, 1000}, ultrawide, 12, 0.25, 3, false, true) == Zone::LeftHalf, "left half mode replaces the lower-left quarter");
+    expect(AeroSnap::zoneAt(Point{4095, 100}, ultrawide, 12, 0.25, 3, true, false) == Zone::RightHalf, "right half mode replaces the upper-right quarter");
+    expect(AeroSnap::zoneAt(Point{4095, 1000}, ultrawide, 12, 0.25, 3, true, false) == Zone::RightHalf, "right half mode replaces the lower-right quarter");
+    expect(AeroSnap::zoneAt(Point{0, 100}, ultrawide, 12, 0.25, 3, true, false) == Zone::TopLeft, "left and right modes remain independent");
 
     const Rect workArea{10, 36, 4076, 1106};
     expectRect(*AeroSnap::rectForZone(workArea, Zone::Left, 10, 10, 3), Rect{10, 36, 1352, 1106}, "left third preserves the horizontal gaps");
     expectRect(*AeroSnap::rectForZone(workArea, Zone::Center, 10, 10, 3), Rect{1372, 36, 1352, 1106}, "middle third preserves the horizontal gaps");
     expectRect(*AeroSnap::rectForZone(workArea, Zone::Right, 10, 10, 3), Rect{2734, 36, 1352, 1106}, "right third reaches the work area edge");
     expectRect(*AeroSnap::rectForZone(workArea, Zone::Left, 10, 10, 2), Rect{10, 36, 2033, 1106}, "forced halves preserve the horizontal gap");
+    expectRect(*AeroSnap::rectForZone(workArea, Zone::LeftHalf, 10, 10, 3), Rect{10, 36, 2033, 1106}, "left half ignores the three-column layout");
+    expectRect(*AeroSnap::rectForZone(workArea, Zone::RightHalf, 10, 10, 3), Rect{2053, 36, 2033, 1106}, "right half ignores the three-column layout");
     expectRect(*AeroSnap::rectForZone(workArea, Zone::BottomRight, 10, 10, 3), Rect{2053, 594, 2033, 548}, "quarters remain halves of the work area");
     expectRect(*AeroSnap::rectForZone(workArea, Zone::Maximize, 10, 10, 3), workArea, "maximize uses the complete work area");
     expect(!AeroSnap::rectForZone(workArea, Zone::Center, 10, 10, 2), "center is unavailable in two-column mode");

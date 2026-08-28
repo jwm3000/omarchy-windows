@@ -10,6 +10,8 @@ lock_file="$state_dir/operation.lock"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 settings_dir="$config_home/omarchy-floating-mode"
 focus_border_disabled_file="$settings_dir/focus-border-disabled"
+left_snap_half_file="$settings_dir/left-snap-half"
+right_snap_half_file="$settings_dir/right-snap-half"
 managed_max_bytes=8192
 managed_max_entries=256
 temporary_files=()
@@ -257,14 +259,33 @@ set_titlebars() {
 }
 
 prepare_settings_dir() {
+  local settings_file
   umask 077
   if ! mkdir -m 700 -- "$settings_dir" 2>/dev/null; then
     validate_private_dir "$settings_dir" "settings directory"
   fi
   chmod 700 -- "$settings_dir"
-  if [[ -e "$focus_border_disabled_file" || -L "$focus_border_disabled_file" ]]; then
-    validate_state_file "$focus_border_disabled_file"
-  fi
+  for settings_file in "$focus_border_disabled_file" "$left_snap_half_file" "$right_snap_half_file"; do
+    if [[ -e "$settings_file" || -L "$settings_file" ]]; then
+      validate_state_file "$settings_file"
+    fi
+  done
+}
+
+set_snap_mode() {
+  local marker="$1" mode="$2"
+  prepare_settings_dir
+  case "$mode" in
+    quarter) rm -f -- "$marker" ;;
+    half) truncate_state_file "$marker" ;;
+    *) die "snap mode must be quarter or half" ;;
+  esac
+}
+
+snap_mode_status() {
+  local marker="$1"
+  prepare_settings_dir
+  if [[ -e "$marker" || -L "$marker" ]]; then printf 'half\n'; else printf 'quarter\n'; fi
 }
 
 focus_border_enabled() {
@@ -474,8 +495,20 @@ case "${1:-}" in
     prepare_settings_dir
     if focus_border_enabled; then printf 'on\n'; else printf 'off\n'; fi
     ;;
+  snap-left-quarter|snap-left-half)
+    set_snap_mode "$left_snap_half_file" "${1#snap-left-}"
+    ;;
+  snap-right-quarter|snap-right-half)
+    set_snap_mode "$right_snap_half_file" "${1#snap-right-}"
+    ;;
+  snap-left-status)
+    snap_mode_status "$left_snap_half_file"
+    ;;
+  snap-right-status)
+    snap_mode_status "$right_snap_half_file"
+    ;;
   *)
-    echo "usage: floating-mode on|off|toggle|sync|status|focus-border-on|focus-border-off|focus-border-status" >&2
+    echo "usage: floating-mode on|off|toggle|sync|status|focus-border-on|focus-border-off|focus-border-status|snap-left-quarter|snap-left-half|snap-left-status|snap-right-quarter|snap-right-half|snap-right-status" >&2
     exit 2
     ;;
 esac
