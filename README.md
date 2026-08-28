@@ -201,17 +201,6 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable io.github.jwm.floating-mode
 ```
 
-## Publishing on Omarchy Plugins
-
-This repository already contains the required root-level `manifest.json`, README, MIT license, and optional preview image. Before submission:
-
-1. Push the repository to `https://github.com/jwm3000/omarchy-windows` and make it public.
-2. Confirm the default branch contains a clean release commit.
-3. Run the validation commands above on current Omarchy.
-4. Submit the public repository URL at [omarchyplugins.com](https://omarchyplugins.com/publish.html).
-
-The marketplace validates the listing and repository layout; plugins themselves run with the user's normal account permissions.
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
