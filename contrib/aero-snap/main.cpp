@@ -112,6 +112,17 @@ namespace {
 
     UP<SPluginState> state;
 
+    SDragState makeDragState(const SP<Layout::ITarget>& target, const CBox& startBox, const bool modeActive) {
+        return {
+            target,
+            startBox,
+            std::nullopt,
+            modeActive,
+            !std::filesystem::exists(state->leftHalfMarker),
+            !std::filesystem::exists(state->rightHalfMarker),
+        };
+    }
+
     AeroSnap::Rect   toRect(const CBox& box) {
         return {box.x, box.y, box.w, box.h};
     }
@@ -419,7 +430,9 @@ namespace {
         g_layoutManager->setTargetGeom(anchoredRestore, target);
         target->warpPositionSize();
         g_layoutManager->beginDragTarget(target, MBIND_MOVE);
-        state->drag    = SDragState{target, anchoredRestore, std::nullopt, true};
+        // Rebuild the drag after detaching a previously snapped window without
+        // falling back to SDragState's quarter-zone defaults.
+        state->drag    = makeDragState(target, anchoredRestore, true);
         info.cancelled = true;
         return true;
     }
@@ -442,14 +455,7 @@ namespace {
             return;
         }
         if (!state->drag || state->drag->target != target)
-            state->drag = SDragState{
-                target,
-                target->position(),
-                std::nullopt,
-                floatingModeActive(),
-                !std::filesystem::exists(state->leftHalfMarker),
-                !std::filesystem::exists(state->rightHalfMarker),
-            };
+            state->drag = makeDragState(target, target->position(), floatingModeActive());
 
         if (!state->drag->modeActive)
             return;

@@ -2,6 +2,11 @@
 
 All notable changes to Floating Mode are documented here.
 
+## 1.1.1 — 2026-08-28
+
+- Preserved the configured left/right snap mode when detaching and continuing to drag an already snapped window
+- Prevented quarter zones from reappearing during a drag when that side is configured for an always-full-height half
+
 ## 1.1.0 — 2026-08-28
 
 - Localized the complete bar tooltip and settings menu automatically from the desktop locale: German for `de*`, English otherwise
