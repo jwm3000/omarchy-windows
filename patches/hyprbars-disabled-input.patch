@@ -1,0 +1,8 @@
+diff --git a/hyprbars/barDeco.cpp b/hyprbars/barDeco.cpp
+--- a/hyprbars/barDeco.cpp
++++ b/hyprbars/barDeco.cpp
+@@ -86,3 +86,3 @@
+ bool CHyprBar::inputIsValid() {
+-    if (m_hidden)
++    if (!g_pGlobalState->config.enabled->value() || m_hidden)
+         return false;

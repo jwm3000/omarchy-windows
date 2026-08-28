@@ -3,12 +3,15 @@ set -euo pipefail
 
 plugin_id=io.github.rawritude.floating-mode
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-floating-mode"
 plugin_dir="$config_home/omarchy/plugins/$plugin_id"
 hypr_dir="$config_home/hypr"
 module_file="$hypr_dir/floating-mode.lua"
 hyprland_file="$hypr_dir/hyprland.lua"
 require_line='require("hypr.floating-mode")'
+snap_source="$plugin_dir/contrib/aero-snap"
+snap_install_dir="$data_home/omarchy-floating-mode"
 cache_dir="/var/cache/hyprpm/$USER/hyprland-plugins"
 cache_plugin="$cache_dir/hyprbars.so"
 cache_state="$cache_dir/state.toml"
@@ -57,16 +60,22 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   fi
   hyprctl reload
   hyprctl configerrors
+  rm -f -- "$snap_install_dir"/omarchy-windows-snap-*.so
+  rmdir "$snap_install_dir" 2>/dev/null || true
   rm -f "$backup_plugin" "$enabled_state"
   rmdir "$state_home" 2>/dev/null || true
-  echo "Removed Floating Mode's titlebar integration and restored the original hyprbars module."
+  echo "Removed Floating Mode's snapping and titlebar integrations, then restored the original hyprbars module."
   exit 0
 fi
 
-require_commands hyprctl hyprpm git make cmake cpio pkg-config g++ gcc sudo install sed grep mktemp awk
+require_commands hyprctl hyprpm git make cmake cpio pkg-config g++ gcc sudo install sed grep mktemp awk sha256sum cut
 
 [[ -f "$plugin_dir/contrib/hyprbars.lua" ]] || {
   echo "Run this from an installed $plugin_id plugin." >&2
+  exit 1
+}
+[[ -f "$snap_source/main.cpp" && -f "$snap_source/geometry.hpp" && -f "$snap_source/Makefile" ]] || {
+  echo "Missing bundled Aero Snap source." >&2
   exit 1
 }
 [[ -f "$hyprland_file" ]] || { echo "Missing $hyprland_file" >&2; exit 1; }
@@ -87,7 +96,17 @@ git -C "$build_dir/hyprland-plugins" checkout --detach 7644cecdb947060682891a0db
   exit 1
 }
 git -C "$build_dir/hyprland-plugins" apply "$plugin_dir/patches/hyprbars-button-hover.patch"
+git -C "$build_dir/hyprland-plugins" apply "$plugin_dir/patches/hyprbars-disabled-input.patch"
 make -C "$build_dir/hyprland-plugins/hyprbars"
+make -C "$snap_source" BUILD_DIR="$build_dir/aero-snap" test all
+snap_binary_sha256="$(sha256sum "$build_dir/aero-snap/omarchy-windows-snap.so" | cut -d' ' -f1)"
+snap_filename="omarchy-windows-snap-${snap_binary_sha256:0:16}.so"
+snap_plugin="$snap_install_dir/$snap_filename"
+[[ ! "$snap_plugin" =~ [[:cntrl:]] && "$snap_plugin" != *']====]'* ]] || {
+  echo "The snap module path cannot be embedded in Hyprland's Lua configuration." >&2
+  exit 1
+}
+snap_plugin_replacement="$(printf '%s' "$snap_plugin" | sed 's/[\\&|]/\\&/g')"
 
 mkdir -p -m 700 "$state_home"
 if [[ ! -f "$backup_plugin" ]]; then
@@ -99,11 +118,26 @@ hyprpm disable hyprbars >/dev/null 2>&1 || true
 sudo install -m755 "$build_dir/hyprland-plugins/hyprbars/hyprbars.so" "$cache_plugin"
 hyprpm enable hyprbars
 
-install -Dm644 "$plugin_dir/contrib/hyprbars.lua" "$module_file"
+mkdir -p -m 700 "$snap_install_dir"
+if [[ -e "$snap_plugin" ]]; then
+  [[ "$(sha256sum "$snap_plugin" | cut -d' ' -f1)" == "$snap_binary_sha256" ]] || {
+    echo "Existing snap module does not match its content-addressed filename." >&2
+    exit 1
+  }
+else
+  install -m755 "$build_dir/aero-snap/omarchy-windows-snap.so" "$snap_plugin"
+fi
+sed "s|@SNAP_PLUGIN_PATH@|$snap_plugin_replacement|g" "$plugin_dir/contrib/hyprbars.lua" >"$build_dir/floating-mode.lua"
+install -Dm644 "$build_dir/floating-mode.lua" "$module_file"
 grep -Fxq "$require_line" "$hyprland_file" || printf '\n%s\n' "$require_line" >>"$hyprland_file"
 
 hyprctl reload
 errors="$(hyprctl configerrors)"
 printf '%s\n' "$errors"
 [[ -z "$errors" ]] || exit 1
-echo "Installed native, compositor-attached Floating Mode titlebars."
+
+for installed_snap in "$snap_install_dir"/omarchy-windows-snap-*.so; do
+  [[ "$installed_snap" == "$snap_plugin" || ! -e "$installed_snap" ]] || rm -f -- "$installed_snap"
+done
+
+echo "Installed native Floating Mode titlebars, magnetic snapping, and Aero-style snap zones."

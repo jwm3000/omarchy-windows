@@ -1,5 +1,18 @@
--- Native titlebars for Floating Mode. Loaded after Omarchy defaults.
+-- Native titlebars and snapping for Floating Mode. Loaded after Omarchy defaults.
+hl.plugin.load([====[@SNAP_PLUGIN_PATH@]====])
+
 hl.config({
+  general = {
+    -- Hyprland's native magnetic snap keeps freely placed windows aligned to
+    -- nearby windows and monitor edges without changing their size.
+    snap = {
+      enabled = true,
+      window_gap = 10,
+      monitor_gap = 10,
+      respect_gaps = true,
+    },
+  },
+
   plugin = {
     hyprbars = {
       enabled = false,
@@ -21,6 +34,24 @@ hl.config({
       icon_on_hover = false,
       button_hover_bg_color = "rgba(ffffff24)",
       close_button_hover_bg_color = "rgba(ff4d4d48)",
+    },
+
+    -- Aero-style edge and corner zones are implemented in the compositor so
+    -- titlebar drags and Super+drag share the same scale-aware geometry.
+    omarchy_windows_snap = {
+      enabled = true,
+      floating_mode_only = true,
+      -- "auto" uses three full-height columns above 16:9 and two otherwise.
+      -- Set this to "2" or "3" to force the same layout on every monitor.
+      columns = "auto",
+      edge_threshold = 12,
+      corner_ratio = 0.25,
+      preview_color = "rgba(1e3a8a33)",
+      preview_border_color = "rgba(1d4ed8bd)",
+      preview_border_size = 2,
+      preview_rounding = 8,
+      preview_blur = true,
+      preview_animation_duration = 200,
     },
   },
 })
