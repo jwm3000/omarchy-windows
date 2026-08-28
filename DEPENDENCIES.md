@@ -11,6 +11,7 @@ Floating Mode has no vendored libraries, package-manager install hooks, telemetr
 | Quickshell Qt/QML imports | Hosts `BarWidget.qml` and `Service.qml` | Omarchy Shell |
 | `hyprctl` | Reads clients and monitors; applies window transitions | Hyprland package |
 | `jq` | Safely calculates logical monitor and window geometry | Omarchy base packages |
+| `perl` | Opens and validates state-file descriptors without following links or blocking on special files | Arch Linux base packages |
 
 Runtime operation is local and uses the current user's permissions.
 

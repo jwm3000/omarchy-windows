@@ -1,0 +1,96 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+use Errno qw(ENOENT);
+use Fcntl qw(:DEFAULT :flock O_NOFOLLOW O_NONBLOCK);
+use POSIX qw(S_ISREG);
+
+sub fail {
+    print STDERR "floating-mode: $_[0]\n";
+    exit 1;
+}
+
+sub open_state_file {
+    my ($path, $flags, $mode, $missing_ok) = @_;
+    my $handle;
+
+    if (!sysopen($handle, $path, $flags | O_NOFOLLOW | O_NONBLOCK, $mode)) {
+        return if $missing_ok && $! == ENOENT;
+        fail("cannot safely open state file: $path: $!");
+    }
+
+    my @stat = stat($handle);
+    fail("cannot inspect opened state file: $path: $!") unless @stat;
+    fail("unsafe state file: $path")
+        unless S_ISREG($stat[2]) && $stat[4] == $< && $stat[3] == 1;
+    chmod(0600, $handle) == 1
+        or fail("cannot restrict state file permissions: $path: $!");
+    return $handle;
+}
+
+my $command = shift // '';
+
+if ($command eq 'check') {
+    my $path = shift // fail('state-file check requires a path');
+    my $handle = open_state_file($path, O_RDONLY, 0, 1);
+    exit(defined($handle) ? 0 : 1);
+}
+
+if ($command eq 'truncate') {
+    my $path = shift // fail('state-file truncate requires a path');
+    my $handle = open_state_file($path, O_WRONLY | O_CREAT, 0600, 0);
+    truncate($handle, 0) or fail("cannot truncate state file: $path: $!");
+    close($handle) or fail("cannot close state file: $path: $!");
+    exit 0;
+}
+
+if ($command eq 'snapshot') {
+    my $source = shift // fail('state-file snapshot requires a source');
+    my $destination = shift // fail('state-file snapshot requires a destination');
+    my $limit = shift // fail('state-file snapshot requires a byte limit');
+    $limit =~ /^\d+$/ or fail('invalid state-file snapshot byte limit');
+
+    my $input = open_state_file($source, O_RDONLY, 0, 0);
+    my $output = open_state_file($destination, O_WRONLY, 0, 0);
+    truncate($output, 0)
+        or fail("cannot truncate state-file snapshot: $destination: $!");
+
+    my ($data, $total) = ('', 0);
+    while ($total <= $limit) {
+        my $read = sysread($input, my $chunk, $limit + 1 - $total);
+        defined($read) or fail("cannot read state file: $source: $!");
+        last if $read == 0;
+        $data .= $chunk;
+        $total += $read;
+    }
+    $total <= $limit or fail("managed-window ledger exceeds $limit bytes");
+
+    my $offset = 0;
+    while ($offset < $total) {
+        my $written = syswrite($output, $data, $total - $offset, $offset);
+        defined($written) && $written > 0
+            or fail("cannot write state-file snapshot: $destination: $!");
+        $offset += $written;
+    }
+    close($output) or fail("cannot close state-file snapshot: $destination: $!");
+    close($input) or fail("cannot close state file: $source: $!");
+    exit 0;
+}
+
+if ($command eq 'lock-exec') {
+    my $path = shift // fail('state-file lock-exec requires a path');
+    @ARGV or fail('state-file lock-exec requires a command');
+    my $handle = open_state_file($path, O_RDWR | O_CREAT, 0600, 0);
+    flock($handle, LOCK_EX) or fail("cannot lock state file: $path: $!");
+
+    # sysopen marks the descriptor close-on-exec. Clear that flag so this
+    # exact validated descriptor and its lock survive for the operation.
+    fcntl($handle, F_SETFD, 0)
+        or fail("cannot preserve state-file lock descriptor: $path: $!");
+    $ENV{FLOATING_MODE_LOCK_HELD} = 1;
+    exec { $ARGV[0] } @ARGV
+        or fail("cannot execute locked floating-mode operation: $!");
+}
+
+fail('invalid state-file helper command');

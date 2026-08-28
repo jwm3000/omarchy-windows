@@ -7,6 +7,8 @@ state_dir="$runtime_dir/omarchy-floating-mode"
 enabled_file="$state_dir/enabled"
 managed_file="$state_dir/managed"
 lock_file="$state_dir/operation.lock"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+state_helper="$script_dir/floating-mode-state"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 settings_dir="$config_home/omarchy-floating-mode"
 focus_border_disabled_file="$settings_dir/focus-border-disabled"
@@ -42,16 +44,6 @@ validate_private_dir() {
   (( (8#$mode & 077) == 0 )) || die "$label is accessible by other users: $path"
 }
 
-validate_state_file() {
-  local path="$1" owner links
-  [[ ! -L "$path" && -f "$path" ]] || die "unsafe state file: $path"
-  owner="$(stat -c '%u' -- "$path")" || die "cannot inspect state file: $path"
-  links="$(stat -c '%h' -- "$path")" || die "cannot inspect state file links: $path"
-  [[ "$owner" == "$current_uid" ]] || die "state file is not owned by the current user: $path"
-  [[ "$links" == 1 ]] || die "state file has multiple hard links: $path"
-  chmod 600 -- "$path"
-}
-
 prepare_state_dir() {
   local state_path
   validate_private_dir "$runtime_dir" "runtime directory"
@@ -62,48 +54,31 @@ prepare_state_dir() {
   chmod 700 -- "$state_dir"
   for state_path in "$enabled_file" "$managed_file" "$lock_file" "$keybindings_marker"; do
     if [[ -e "$state_path" || -L "$state_path" ]]; then
-      validate_state_file "$state_path"
+      "$state_helper" check "$state_path"
     fi
   done
 }
 
 acquire_operation_lock() {
-  if [[ ! -e "$lock_file" && ! -L "$lock_file" ]]; then
-    (set -o noclobber; : >"$lock_file") 2>/dev/null || true
-  fi
-  validate_state_file "$lock_file"
-  exec 9<>"$lock_file"
-  flock -x 9
+  [[ ${FLOATING_MODE_LOCK_HELD:-} == 1 ]] && return
+  exec "$state_helper" lock-exec "$lock_file" "$0" "$@"
 }
 
 state_file_exists() {
-  local path="$1"
-  if [[ -e "$path" || -L "$path" ]]; then
-    validate_state_file "$path"
-    return 0
-  fi
-  return 1
+  "$state_helper" check "$1"
 }
 
 truncate_state_file() {
-  local path="$1"
-  if [[ -e "$path" || -L "$path" ]]; then
-    validate_state_file "$path"
-  fi
-  : >"$path"
-  validate_state_file "$path"
+  "$state_helper" truncate "$1"
 }
 
 snapshot_managed_ledger() {
   local snapshot="$1" bytes
-  validate_state_file "$managed_file"
-
-  # Another same-UID process can replace or grow the managed path. Read it
-  # only once with one detection byte beyond the limit, then validate and
-  # consume these exact private bytes in every caller.
-  head -c "$((managed_max_bytes + 1))" -- "$managed_file" >"$snapshot" \
+  # Open both files without following links or blocking on special files,
+  # validate their descriptors, and use those same descriptors for the
+  # bounded copy.
+  "$state_helper" snapshot "$managed_file" "$snapshot" "$managed_max_bytes" \
     || die "cannot snapshot managed-window ledger"
-  chmod 600 -- "$snapshot"
   bytes="$(stat -c '%s' -- "$snapshot")" || die "cannot inspect managed-window ledger snapshot"
   ((bytes <= managed_max_bytes)) || die "managed-window ledger exceeds $managed_max_bytes bytes"
   awk -v max="$managed_max_entries" '
@@ -159,7 +134,7 @@ append_managed_address() {
 require_tools() {
   command -v hyprctl >/dev/null 2>&1 || { echo "hyprctl is required" >&2; exit 1; }
   command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
-  command -v flock >/dev/null 2>&1 || { echo "flock is required" >&2; exit 1; }
+  command -v perl >/dev/null 2>&1 || { echo "perl is required" >&2; exit 1; }
 }
 
 valid_address() {
@@ -307,7 +282,7 @@ prepare_settings_dir() {
   chmod 700 -- "$settings_dir"
   for settings_file in "$focus_border_disabled_file" "$left_snap_half_file" "$right_snap_half_file"; do
     if [[ -e "$settings_file" || -L "$settings_file" ]]; then
-      validate_state_file "$settings_file"
+      "$state_helper" check "$settings_file"
     fi
   done
 }
@@ -511,7 +486,7 @@ disable_mode() {
 
 require_tools
 prepare_state_dir
-acquire_operation_lock
+acquire_operation_lock "$@"
 case "${1:-}" in
   on)
     enable_mode
