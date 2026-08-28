@@ -11,6 +11,7 @@
 #include <hyprland/src/config/values/types/IntValue.hpp>
 #include <hyprland/src/config/values/types/StringValue.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
+#include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/layout/space/Space.hpp>
@@ -103,6 +104,7 @@ namespace {
         std::optional<SDragState> drag;
         std::vector<SSnapRecord>  records;
         UP<SEventLoopDoLaterLock> pendingApply;
+        UP<SEventLoopDoLaterLock> pendingLuaRegistration;
         CHyprSignalListener       mouseMoveListener;
         CHyprSignalListener       mouseButtonListener;
         CHyprSignalListener       renderListener;
@@ -393,6 +395,78 @@ namespace {
         rememberSnap(window, restoreBox, placement.clientBox, placement.zone);
     }
 
+    PHLWINDOW focusedWindow() {
+        const auto focus = Desktop::focusState();
+        return focus ? focus->window() : nullptr;
+    }
+
+    SDispatchResult dispatchKeyboardSnap(std::string direction) {
+        if (!floatingModeActive())
+            return {.passEvent = true, .success = false, .error = "Floating Mode is not active"};
+
+        const auto window = focusedWindow();
+        if (!Desktop::View::validMapped(window) || !window->m_target || !window->m_target->floating())
+            return {.success = false, .error = "No focused floating window"};
+
+        const auto target = window->m_target;
+        if (direction == "restore") {
+            const auto record = recordFor(window);
+            if (!record)
+                return {};
+
+            const CBox restoreBox = record->restoreBox;
+            if (Fullscreen::controller()->isFullscreen(window))
+                Fullscreen::controller()->setFullscreenMode(window, Fullscreen::FSMODE_NONE);
+            forgetRestoreBox(window);
+            g_layoutManager->setTargetGeom(restoreBox, target);
+            target->warpPositionSize();
+            target->damageEntire();
+            return {};
+        }
+
+        Zone zone = Zone::None;
+        if (direction == "left")
+            zone = Zone::LeftHalf;
+        else if (direction == "right")
+            zone = Zone::RightHalf;
+        else if (direction == "maximize")
+            zone = Zone::Maximize;
+        else
+            return {.success = false, .error = "Expected left, right, maximize, or restore"};
+
+        const auto monitor   = window->m_monitor.lock();
+        const auto placement = placementFor(target, monitor, zone);
+        if (!placement)
+            return {.success = false, .error = "Cannot place the focused window"};
+
+        // Repeated keyboard snaps retain the geometry from before the first
+        // snap, making Restore deterministic across every direction change.
+        const auto record     = recordFor(window);
+        const CBox restoreBox = record ? record->restoreBox : target->position();
+        applyPlacement(*placement, restoreBox);
+        return {};
+    }
+
+    int luaSnapLeft(lua_State*) {
+        dispatchKeyboardSnap("left");
+        return 0;
+    }
+
+    int luaSnapRight(lua_State*) {
+        dispatchKeyboardSnap("right");
+        return 0;
+    }
+
+    int luaSnapMaximize(lua_State*) {
+        dispatchKeyboardSnap("maximize");
+        return 0;
+    }
+
+    int luaSnapRestore(lua_State*) {
+        dispatchKeyboardSnap("restore");
+        return 0;
+    }
+
     bool restoreSnappedDrag(const SP<Layout::ITarget>& target, const Vector2D cursor, Event::SCallbackInfo& info) {
         const auto window = target->window();
         const auto record = currentSnapRecord(target, true);
@@ -627,6 +701,15 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addConfigValueV2(pluginHandle, state->config.previewBlur);
     HyprlandAPI::addConfigValueV2(pluginHandle, state->config.previewAnimationDuration);
 
+    state->pendingLuaRegistration = g_pEventLoopManager->doLaterLock([] {
+        if (!state)
+            return;
+        HyprlandAPI::addLuaFunction(pluginHandle, "omarchy_windows_snap", "left", luaSnapLeft);
+        HyprlandAPI::addLuaFunction(pluginHandle, "omarchy_windows_snap", "right", luaSnapRight);
+        HyprlandAPI::addLuaFunction(pluginHandle, "omarchy_windows_snap", "maximize", luaSnapMaximize);
+        HyprlandAPI::addLuaFunction(pluginHandle, "omarchy_windows_snap", "restore", luaSnapRestore);
+    });
+
     state->mouseMoveListener      = Event::bus()->m_events.input.mouse.move.listen([](Vector2D cursor, Event::SCallbackInfo& info) { onMouseMove(cursor, info); });
     state->mouseButtonListener    = Event::bus()->m_events.input.mouse.button.listen([](IPointer::SButtonEvent event, Event::SCallbackInfo&) { onMouseButton(event); });
     state->renderListener         = Event::bus()->m_events.render.stage.listen([](eRenderStage stageValue) { onRenderStage(stageValue); });
@@ -652,6 +735,7 @@ APICALL EXPORT void PLUGIN_EXIT() {
 
     clearPreview();
     state->pendingApply.reset();
+    state->pendingLuaRegistration.reset();
     restoreTrackedWindows();
     state->mouseMoveListener.reset();
     state->mouseButtonListener.reset();

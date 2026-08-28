@@ -12,6 +12,7 @@ settings_dir="$config_home/omarchy-floating-mode"
 focus_border_disabled_file="$settings_dir/focus-border-disabled"
 left_snap_half_file="$settings_dir/left-snap-half"
 right_snap_half_file="$settings_dir/right-snap-half"
+keybindings_marker="$state_dir/keybindings"
 managed_max_bytes=8192
 managed_max_entries=256
 temporary_files=()
@@ -59,7 +60,7 @@ prepare_state_dir() {
     validate_private_dir "$state_dir" "state directory"
   fi
   chmod 700 -- "$state_dir"
-  for state_path in "$enabled_file" "$managed_file" "$lock_file"; do
+  for state_path in "$enabled_file" "$managed_file" "$lock_file" "$keybindings_marker"; do
     if [[ -e "$state_path" || -L "$state_path" ]]; then
       validate_state_file "$state_path"
     fi
@@ -258,6 +259,45 @@ set_titlebars() {
   hyprctl eval "hl.config({ plugin = { hyprbars = { enabled = $value } } })" >/dev/null
 }
 
+keybindings_installed() {
+  hyprctl binds -j 2>/dev/null | jq -e '
+    [.[].description // empty] as $descriptions
+    | ([
+        "Floating Mode: left half",
+        "Floating Mode: right half",
+        "Floating Mode: maximize",
+        "Floating Mode: restore position and size"
+      ] - $descriptions | length == 0)
+  ' >/dev/null
+}
+
+install_keybindings() {
+  if state_file_exists "$keybindings_marker" && keybindings_installed; then
+    return 0
+  fi
+  rm -f -- "$keybindings_marker"
+  hyprctl eval '
+    hl.bind("SUPER + CTRL + LEFT", function() hl.plugin.omarchy_windows_snap.left() end, { description = "Floating Mode: left half" })
+    hl.bind("SUPER + CTRL + RIGHT", function() hl.plugin.omarchy_windows_snap.right() end, { description = "Floating Mode: right half" })
+    hl.bind("SUPER + CTRL + UP", function() hl.plugin.omarchy_windows_snap.maximize() end, { description = "Floating Mode: maximize" })
+    hl.bind("SUPER + CTRL + DOWN", function() hl.plugin.omarchy_windows_snap.restore() end, { description = "Floating Mode: restore position and size" })
+  ' >/dev/null
+  truncate_state_file "$keybindings_marker"
+}
+
+remove_keybindings() {
+  if ! state_file_exists "$keybindings_marker" && ! keybindings_installed; then
+    return 0
+  fi
+  hyprctl eval '
+    hl.unbind("SUPER + CTRL + LEFT")
+    hl.unbind("SUPER + CTRL + RIGHT")
+    hl.unbind("SUPER + CTRL + UP")
+    hl.unbind("SUPER + CTRL + DOWN")
+  ' >/dev/null
+  rm -f -- "$keybindings_marker"
+}
+
 prepare_settings_dir() {
   local settings_file
   umask 077
@@ -327,7 +367,11 @@ use_inactive_focus_border() {
 
 restore_configured_focus_border() {
   hyprctl reload >/dev/null
-  if state_file_exists "$enabled_file"; then set_titlebars true; fi
+  if state_file_exists "$enabled_file"; then
+    rm -f -- "$keybindings_marker"
+    set_titlebars true
+    install_keybindings
+  fi
 }
 
 apply_focus_border_preference() {
@@ -409,6 +453,7 @@ wait_for_managed_windows() {
 sync_windows() {
   state_file_exists "$enabled_file" || return 0
   state_file_exists "$managed_file" || die "managed state is missing while Floating Mode is enabled"
+  install_keybindings
   local snapshot monitors address
   snapshot="$(clients)"
   prune_managed_ledger "$snapshot"
@@ -437,9 +482,11 @@ enable_mode() {
   # floating geometry, avoiding a tiled titlebar re-layout beforehand.
   set_titlebars true
   apply_focus_border_preference
+  install_keybindings
 }
 
 disable_mode() {
+  remove_keybindings
   if state_file_exists "$managed_file"; then
     local live address ledger_snapshot
     ledger_snapshot="$(mktemp -p "$state_dir" '.managed-read.XXXXXX')" || die "cannot create managed-window ledger snapshot"

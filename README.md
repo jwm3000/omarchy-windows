@@ -21,6 +21,8 @@ One click turns the current desktop into a calm, free-form workspace. Windows ke
 - Magnetically aligns freely placed windows with nearby windows and monitor edges
 - Snaps dragged windows into full-height columns, corner quarters, or maximization with a live preview
 - Restores a window's previous size when it is dragged away from a snap zone
+- Adds focused-window keyboard snapping while Floating Mode is active
+- Restores a keyboard-snapped window to its original position and size
 
 The result is simple: tiling when you want structure, floating when you want space and context.
 
@@ -87,6 +89,19 @@ Under **Window snap / Fenster-Snap**, the left and right screen edges can be con
 
 For example, with the right side set to **Half / Hälfte**, dragging to the upper-right or lower-right corner selects the complete right half instead of a quarter. Both choices persist across restarts and apply from the next window drag.
 
+### Keyboard snapping
+
+While Floating Mode is active, the following shortcuts operate on the currently focused window:
+
+- `Ctrl`+`Super`+`Left` — snap to the full-height left half
+- `Ctrl`+`Super`+`Right` — snap to the full-height right half
+- `Ctrl`+`Super`+`Up` — maximize
+- `Ctrl`+`Super`+`Down` — restore the position and size from before the first keyboard snap
+
+The original geometry is retained while switching repeatedly between the left half, right half, and maximized state. `Ctrl`+`Super`+`Down` therefore returns the focused window to the same pre-snap geometry regardless of the intermediate sequence.
+
+These bindings are registered only while Floating Mode is enabled and removed when it is disabled. The left and right keyboard shortcuts always select halves; the independent **Quarters / Half** menu choices affect mouse-drag snap zones only.
+
 In Floating Mode, use either the native titlebar or `Super`+drag to move a window:
 
 - Drag to the left or right edge for an outer full-height column, or the configured half
@@ -98,7 +113,7 @@ In Floating Mode, use either the native titlebar or `Super`+drag to move a windo
 
 Hyprland draws a blurred blue preview with a 200 ms transition between zones. The square titlebar button toggles maximization; the close button closes the window.
 
-Full-height snapping uses `columns = "auto"` by default: monitors wider than 16:9 get three columns, while 16:9 and narrower monitors keep two. Corner zones remain quarters in either layout. To force one layout on every monitor, add this after `require("hypr.floating-mode")` in `~/.config/hypr/hyprland.lua`:
+Full-height snapping uses `columns = "auto"` by default: monitors wider than 16:9 get three columns, while 16:9 and narrower monitors keep two. When a side is configured for quarters, its corner zones remain quarters in either layout. To force one layout on every monitor, add this after `require("hypr.floating-mode")` in `~/.config/hypr/hyprland.lua`:
 
 ```lua
 hl.config({ plugin = { omarchy_windows_snap = { columns = "2" } } }) -- or "3"
@@ -150,7 +165,7 @@ Only window addresses changed by Floating Mode are recorded. When the mode is di
 
 Titlebars are rendered inside the compositor by the official [`hyprbars`](https://github.com/hyprwm/hyprland-plugins/tree/main/hyprbars) plugin. The bundled [`hyprbars-button-hover.patch`](patches/hyprbars-button-hover.patch) adds configurable circular hover backgrounds, while [`hyprbars-disabled-input.patch`](patches/hyprbars-disabled-input.patch) carries [hyprland-plugins#701](https://github.com/hyprwm/hyprland-plugins/pull/701) for the pinned build.
 
-The bundled `omarchy-windows-snap` plugin handles drag zones and previews inside Hyprland without a background polling process.
+The bundled `omarchy-windows-snap` plugin handles drag zones, previews, focused-window keyboard placement, and restoration inside Hyprland. Keyboard actions query Hyprland's current focus state directly, so they never target a window merely because it was previously active or happens to be highest in the stacking order.
 
 ## Privacy and security
 

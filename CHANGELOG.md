@@ -2,6 +2,12 @@
 
 All notable changes to Floating Mode are documented here.
 
+## 1.2.0 — 2026-08-28
+
+- Added Floating Mode-only keyboard snapping: Ctrl+Super+Left/Right selects the corresponding half and Ctrl+Super+Up maximizes the focused window
+- Added Ctrl+Super+Down to restore the focused window's original position and size, even after switching repeatedly between keyboard snap positions
+- Resolved every keyboard action through Hyprland's current focus state and registered each binding only while Floating Mode is active
+
 ## 1.1.1 — 2026-08-28
 
 - Preserved the configured left/right snap mode when detaching and continuing to drag an already snapped window
