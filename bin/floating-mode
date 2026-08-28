@@ -7,6 +7,9 @@ state_dir="$runtime_dir/omarchy-floating-mode"
 enabled_file="$state_dir/enabled"
 managed_file="$state_dir/managed"
 lock_file="$state_dir/operation.lock"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+settings_dir="$config_home/omarchy-floating-mode"
+focus_border_disabled_file="$settings_dir/focus-border-disabled"
 managed_max_bytes=8192
 managed_max_entries=256
 temporary_files=()
@@ -253,6 +256,63 @@ set_titlebars() {
   hyprctl eval "hl.config({ plugin = { hyprbars = { enabled = $value } } })" >/dev/null
 }
 
+prepare_settings_dir() {
+  umask 077
+  if ! mkdir -m 700 -- "$settings_dir" 2>/dev/null; then
+    validate_private_dir "$settings_dir" "settings directory"
+  fi
+  chmod 700 -- "$settings_dir"
+  if [[ -e "$focus_border_disabled_file" || -L "$focus_border_disabled_file" ]]; then
+    validate_state_file "$focus_border_disabled_file"
+  fi
+}
+
+focus_border_enabled() {
+  [[ ! -e "$focus_border_disabled_file" && ! -L "$focus_border_disabled_file" ]]
+}
+
+use_inactive_focus_border() {
+  local gradient angle token argb rgba lua_colors="" separator=""
+  local -a parts colors
+  gradient="$(hyprctl getoption general:col.inactive_border -j \
+    | jq -er '.gradient | select(type == "string" and length <= 256)')" \
+    || die "cannot read inactive border color"
+  read -r -a parts <<<"$gradient"
+  ((${#parts[@]} >= 2 && ${#parts[@]} <= 9)) || die "invalid inactive border color"
+  angle="${parts[-1]%deg}"
+  [[ "${parts[-1]}" =~ ^[0-9]+deg$ && "$angle" =~ ^[0-9]+$ && "$angle" -le 360 ]] \
+    || die "invalid inactive border angle"
+  unset 'parts[-1]'
+
+  for token in "${parts[@]}"; do
+    [[ "$token" =~ ^[0-9a-fA-F]{8}$ ]] || die "invalid inactive border color"
+    # `hyprctl getoption` reports AARRGGBB; Lua's rgba() accepts RRGGBBAA.
+    argb="${token,,}"
+    rgba="${argb:2:6}${argb:0:2}"
+    colors+=("$rgba")
+  done
+
+  if ((${#colors[@]} == 1)); then
+    hyprctl eval "hl.config({ general = { [\"col.active_border\"] = \"rgba(${colors[0]})\" } })" >/dev/null
+    return
+  fi
+
+  for rgba in "${colors[@]}"; do
+    lua_colors+="${separator}\"rgba($rgba)\""
+    separator=", "
+  done
+  hyprctl eval "hl.config({ general = { [\"col.active_border\"] = { colors = { $lua_colors }, angle = $angle } } })" >/dev/null
+}
+
+restore_configured_focus_border() {
+  hyprctl reload >/dev/null
+  if state_file_exists "$enabled_file"; then set_titlebars true; fi
+}
+
+apply_focus_border_preference() {
+  focus_border_enabled || use_inactive_focus_border
+}
+
 bounded_hypr_json() {
   local resource="$1" max_bytes="$2" max_items="$3" buffer bytes
   buffer="$(mktemp -p "$state_dir" ".${resource}.XXXXXX")" || die "cannot create bounded IPC buffer"
@@ -355,6 +415,7 @@ enable_mode() {
   # Enable decorations only after all windows have reached their final
   # floating geometry, avoiding a tiled titlebar re-layout beforehand.
   set_titlebars true
+  apply_focus_border_preference
 }
 
 disable_mode() {
@@ -377,6 +438,7 @@ disable_mode() {
   if state_file_exists "$enabled_file"; then rm -f -- "$enabled_file"; fi
   if state_file_exists "$managed_file"; then rm -f -- "$managed_file"; fi
   rmdir "$state_dir" 2>/dev/null || true
+  focus_border_enabled || restore_configured_focus_border
 }
 
 require_tools
@@ -398,8 +460,22 @@ case "${1:-}" in
   status)
     if state_file_exists "$enabled_file"; then printf 'on\n'; else printf 'off\n'; fi
     ;;
+  focus-border-on)
+    prepare_settings_dir
+    rm -f -- "$focus_border_disabled_file"
+    if state_file_exists "$enabled_file"; then restore_configured_focus_border; fi
+    ;;
+  focus-border-off)
+    prepare_settings_dir
+    truncate_state_file "$focus_border_disabled_file"
+    if state_file_exists "$enabled_file"; then use_inactive_focus_border; fi
+    ;;
+  focus-border-status)
+    prepare_settings_dir
+    if focus_border_enabled; then printf 'on\n'; else printf 'off\n'; fi
+    ;;
   *)
-    echo "usage: floating-mode on|off|toggle|sync|status" >&2
+    echo "usage: floating-mode on|off|toggle|sync|status|focus-border-on|focus-border-off|focus-border-status" >&2
     exit 2
     ;;
 esac

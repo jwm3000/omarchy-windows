@@ -74,6 +74,9 @@ Click the overlapping-windows icon in the Omarchy bar:
 - Normal icon: tiled mode
 - Highlighted icon: Floating Mode is active
 - Click again: managed windows return directly to tiling
+- Right-click: open the Floating Mode settings
+
+The **Fokusrahmen** switch controls the active-window border while Floating Mode is on. Leave it enabled to keep the configured focus color, or disable it to give the focused window the same border color as inactive windows. The normal focus border is restored automatically when Floating Mode is turned off, and the preference persists across shell and login restarts.
 
 In Floating Mode, use either the native titlebar or `Super`+drag to move a window:
 

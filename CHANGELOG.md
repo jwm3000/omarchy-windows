@@ -2,6 +2,12 @@
 
 All notable changes to Floating Mode are documented here.
 
+## 1.0.15 — 2026-08-28
+
+- Added a right-click settings menu to the Floating Mode bar icon
+- Added a persistent Fokusrahmen switch for keeping the configured focus color or matching the inactive window border while Floating Mode is active
+- Restored the configured focus border automatically when Floating Mode is disabled
+
 ## 1.0.12 — 2026-08-22
 
 - Changed the displayed plugin author from `rawritude` to `Norbert Winter`
