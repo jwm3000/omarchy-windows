@@ -2,8 +2,9 @@
 
 All notable changes to Floating Mode are documented here.
 
-## Unreleased
+## 1.3.0 — 2026-08-29
 
+- Opened, validated, locked, read, and wrote mutable state through the same no-follow, nonblocking file descriptors
 - Corrected half-height geometry when snapping directly from fullscreen or maximized state
 - Added a persistent Gaps switch for drag and keyboard snapping, enabled by default; disabling it removes both inner and outer gaps
 
