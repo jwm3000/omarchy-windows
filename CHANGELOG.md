@@ -2,6 +2,13 @@
 
 All notable changes to Floating Mode are documented here.
 
+## 1.4.0 — 2026-08-29
+
+- Open newly mapped windows directly at their centered floating size instead of briefly showing a full-work-area tiled frame
+- Prevent Omarchy's Chromium browser tag from re-tiling Chromium-based browsers while Floating Mode is active
+- Cascade newly opened floating windows by 28 pixels so overlapping windows remain visible
+- Add a persistent transparency switch that can make active and inactive Floating Mode windows fully opaque
+
 ## 1.3.1 — 2026-08-29
 
 - Restored the permanent marketplace plugin ID `io.github.rawritude.floating-mode` for update compatibility

@@ -111,6 +111,7 @@ namespace {
         CHyprSignalListener       renderListener;
         CHyprSignalListener       windowDestroyListener;
         CHyprSignalListener       windowFloatingListener;
+        CHyprSignalListener       windowOpenLateListener;
     };
 
     UP<SPluginState> state;
@@ -306,6 +307,40 @@ namespace {
 
     PHLWORKSPACE activeWorkspace(const PHLMONITOR& monitor) {
         return monitor->m_activeSpecialWorkspace ? monitor->m_activeSpecialWorkspace : monitor->m_activeWorkspace;
+    }
+
+    void cascadeOpenedWindow(const PHLWINDOW& window) {
+        if (!state || !floatingModeActive() || !Desktop::View::validMapped(window) || !window->m_target || !window->m_target->floating() ||
+            !window->m_ruleApplicator || !window->m_ruleApplicator->m_tagKeeper.isTagged("floating-mode-managed"))
+            return;
+
+        const auto workspace = window->m_target->workspace();
+        if (!workspace || !workspace->m_space)
+            return;
+
+        size_t managedPeers = 0;
+        for (const auto& weakTarget : workspace->m_space->targets()) {
+            const auto target = weakTarget.lock();
+            const auto peer   = target ? target->window() : nullptr;
+            if (!peer || peer == window || !Desktop::View::validMapped(peer) || !peer->m_ruleApplicator ||
+                !peer->m_ruleApplicator->m_tagKeeper.isTagged("floating-mode-managed"))
+                continue;
+            ++managedPeers;
+        }
+
+        constexpr double STEP   = 28.0;
+        constexpr size_t LEVELS = 4;
+        const double offset      = STEP * static_cast<double>(managedPeers % LEVELS);
+        if (offset == 0.0)
+            return;
+
+        const CBox workArea = workspace->m_space->workArea(true);
+        CBox       box      = window->m_target->position();
+        box.x               = std::clamp(box.x + offset, workArea.x, std::max(workArea.x, workArea.x + workArea.w - box.w));
+        box.y               = std::clamp(box.y + offset, workArea.y, std::max(workArea.y, workArea.y + workArea.h - box.h));
+        g_layoutManager->setTargetGeom(box, window->m_target);
+        window->m_target->warpPositionSize();
+        window->m_target->damageEntire();
     }
 
     std::optional<SPlacement> placementFor(const SP<Layout::ITarget>& target, const PHLMONITOR& monitor, const Zone zone) {
@@ -735,6 +770,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         if (state && Desktop::View::validMapped(window) && window->m_target && !window->m_target->floating())
             forgetRestoreBox(window);
     });
+    state->windowOpenLateListener = Event::bus()->m_events.window.openLate.listen([](PHLWINDOW window) { cascadeOpenedWindow(window); });
 
     HyprlandAPI::reloadConfig();
     return {"omarchy-windows-snap", "Aero-style drag snap zones for Omarchy Floating Mode", "Norbert Winter and contributors", "1.0"};
@@ -753,5 +789,6 @@ APICALL EXPORT void PLUGIN_EXIT() {
     state->renderListener.reset();
     state->windowDestroyListener.reset();
     state->windowFloatingListener.reset();
+    state->windowOpenLateListener.reset();
     state.reset();
 }

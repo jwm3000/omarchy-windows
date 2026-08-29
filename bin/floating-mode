@@ -15,6 +15,7 @@ focus_border_disabled_file="$settings_dir/focus-border-disabled"
 left_snap_half_file="$settings_dir/left-snap-half"
 right_snap_half_file="$settings_dir/right-snap-half"
 snap_gaps_disabled_file="$settings_dir/snap-gaps-disabled"
+transparency_disabled_file="$settings_dir/transparency-disabled"
 keybindings_marker="$state_dir/keybindings"
 managed_max_bytes=8192
 managed_max_entries=256
@@ -235,6 +236,18 @@ set_titlebars() {
   hyprctl eval "hl.config({ plugin = { hyprbars = { enabled = $value } } })" >/dev/null
 }
 
+set_open_rule() {
+  local value="$1"
+  hyprctl eval \
+    "omarchy_floating_mode_open_rule:set_enabled($value);"\
+"omarchy_floating_mode_browser_rule:set_enabled($value)" >/dev/null
+}
+
+set_opaque_rule() {
+  local value="$1"
+  hyprctl eval "omarchy_floating_mode_opaque_rule:set_enabled($value)" >/dev/null
+}
+
 keybindings_installed() {
   hyprctl binds -j 2>/dev/null | jq -e '
     [.[].description // empty] as $descriptions
@@ -281,7 +294,7 @@ prepare_settings_dir() {
     validate_private_dir "$settings_dir" "settings directory"
   fi
   chmod 700 -- "$settings_dir"
-  for settings_file in "$focus_border_disabled_file" "$left_snap_half_file" "$right_snap_half_file" "$snap_gaps_disabled_file"; do
+  for settings_file in "$focus_border_disabled_file" "$left_snap_half_file" "$right_snap_half_file" "$snap_gaps_disabled_file" "$transparency_disabled_file"; do
     if [[ -e "$settings_file" || -L "$settings_file" ]]; then
       "$state_helper" check "$settings_file"
     fi
@@ -306,6 +319,14 @@ snap_mode_status() {
 
 snap_gaps_enabled() {
   [[ ! -e "$snap_gaps_disabled_file" && ! -L "$snap_gaps_disabled_file" ]]
+}
+
+transparency_enabled() {
+  [[ ! -e "$transparency_disabled_file" && ! -L "$transparency_disabled_file" ]]
+}
+
+apply_transparency_preference() {
+  if transparency_enabled; then set_opaque_rule false; else set_opaque_rule true; fi
 }
 
 focus_border_enabled() {
@@ -433,10 +454,23 @@ wait_for_managed_windows() {
 sync_windows() {
   state_file_exists "$enabled_file" || return 0
   state_file_exists "$managed_file" || die "managed state is missing while Floating Mode is enabled"
+  set_open_rule true
+  apply_transparency_preference
   install_keybindings
   local snapshot monitors address
   snapshot="$(clients)"
   prune_managed_ledger "$snapshot"
+  # Windows caught by the compositor rule already have their final geometry.
+  # Record their tag so disabling the mode can restore only windows we own.
+  while IFS= read -r address; do
+    [[ -n "$address" ]] || continue
+    append_managed_address "$address"
+  done < <(jq -r '
+    .[]
+    | select(.mapped == true and .floating == true)
+    | select(any((.tags // [])[]; startswith("floating-mode-managed")))
+    | .address
+  ' <<<"$snapshot")
   # Monitor geometry is optional: failure must not block the floating action.
   monitors="$(monitors || printf '[]')"
   while IFS= read -r address; do
@@ -467,6 +501,8 @@ enable_mode() {
 
 disable_mode() {
   remove_keybindings
+  set_open_rule false
+  set_opaque_rule false
   if state_file_exists "$managed_file"; then
     local live address ledger_snapshot
     ledger_snapshot="$(mktemp -p "$state_dir" '.managed-read.XXXXXX')" || die "cannot create managed-window ledger snapshot"
@@ -546,8 +582,22 @@ case "${1:-}" in
     prepare_settings_dir
     if snap_gaps_enabled; then printf 'on\n'; else printf 'off\n'; fi
     ;;
+  transparency-on)
+    prepare_settings_dir
+    rm -f -- "$transparency_disabled_file"
+    if state_file_exists "$enabled_file"; then set_opaque_rule false; fi
+    ;;
+  transparency-off)
+    prepare_settings_dir
+    truncate_state_file "$transparency_disabled_file"
+    if state_file_exists "$enabled_file"; then set_opaque_rule true; fi
+    ;;
+  transparency-status)
+    prepare_settings_dir
+    if transparency_enabled; then printf 'on\n'; else printf 'off\n'; fi
+    ;;
   *)
-    echo "usage: floating-mode on|off|toggle|sync|status|focus-border-on|focus-border-off|focus-border-status|snap-left-quarter|snap-left-half|snap-left-status|snap-right-quarter|snap-right-half|snap-right-status|snap-gaps-on|snap-gaps-off|snap-gaps-status" >&2
+    echo "usage: floating-mode on|off|toggle|sync|status|focus-border-on|focus-border-off|focus-border-status|snap-left-quarter|snap-left-half|snap-left-status|snap-right-quarter|snap-right-half|snap-right-status|snap-gaps-on|snap-gaps-off|snap-gaps-status|transparency-on|transparency-off|transparency-status" >&2
     exit 2
     ;;
 esac

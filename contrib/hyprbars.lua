@@ -56,6 +56,45 @@ hl.config({
   },
 })
 
+-- Apply the final floating geometry while a new tiled window is being mapped,
+-- before Hyprland can present a full-work-area tiled frame. The shell helper
+-- enables this named rule only while Floating Mode is active. The tag lets the
+-- helper retain ownership of these windows and tile only those windows again.
+omarchy_floating_mode_open_rule = hl.window_rule({
+  name = "floating-mode-open-small",
+  match = {
+    class = ".*",
+    float = false,
+  },
+  tag = "+floating-mode-managed",
+  float = true,
+  fullscreen_state = "0 0",
+  size = { "monitor_w*0.7", "monitor_h*0.7" },
+  center = true,
+})
+omarchy_floating_mode_open_rule:set_enabled(false)
+
+-- Omarchy deliberately tiles Chromium-based browsers through a dynamic tag
+-- rule. While Floating Mode is active, remove that tag so the later tile=true
+-- effect cannot undo the initial floating placement. Disabling this rule lets
+-- Omarchy restore its normal browser behavior automatically.
+omarchy_floating_mode_browser_rule = hl.window_rule({
+  name = "floating-mode-disable-browser-tiling",
+  match = {
+    class = "((google-)?[cC]hrom(e|ium)|[bB]rave-browser|[mM]icrosoft-edge|Vivaldi-stable|helium)",
+  },
+  tag = "-chromium-based-browser",
+})
+omarchy_floating_mode_browser_rule:set_enabled(false)
+
+-- Optional fully opaque rendering for every window while Floating Mode is on.
+omarchy_floating_mode_opaque_rule = hl.window_rule({
+  name = "floating-mode-opaque-windows",
+  match = { class = ".*" },
+  opacity = "1.0 override 1.0 override",
+})
+omarchy_floating_mode_opaque_rule:set_enabled(false)
+
 -- Buttons are declared right-to-left: close, then maximize.
 hl.plugin.hyprbars.add_button({
   bg_color = "rgba(00000000)",

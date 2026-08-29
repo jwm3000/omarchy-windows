@@ -10,11 +10,13 @@ BarWidget {
 
   property bool floatingMode: false
   property bool focusBorderEnabled: true
+  property bool transparencyEnabled: true
   property string leftSnapMode: "quarter"
   property string rightSnapMode: "quarter"
   property bool snapGapsEnabled: true
   property bool busy: false
   property bool focusBorderBusy: false
+  property bool transparencyBusy: false
   property bool snapBusy: false
   property bool settingsOpen: false
   property string lastError: ""
@@ -38,6 +40,7 @@ BarWidget {
   function refresh() {
     if (!statusProc.running) statusProc.running = true
     if (!focusBorderStatusProc.running) focusBorderStatusProc.running = true
+    if (!transparencyStatusProc.running) transparencyStatusProc.running = true
     if (!leftSnapStatusProc.running) leftSnapStatusProc.running = true
     if (!rightSnapStatusProc.running) rightSnapStatusProc.running = true
     if (!snapGapsStatusProc.running) snapGapsStatusProc.running = true
@@ -71,6 +74,17 @@ BarWidget {
       root.focusBorderEnabled ? "focus-border-off" : "focus-border-on"
     ]
     focusBorderActionProc.running = true
+  }
+
+  function toggleTransparency() {
+    if (transparencyActionProc.running) return
+    transparencyBusy = true
+    lastError = ""
+    transparencyActionProc.command = [
+      root.helper,
+      root.transparencyEnabled ? "transparency-off" : "transparency-on"
+    ]
+    transparencyActionProc.running = true
   }
 
   function setSnapMode(side, mode) {
@@ -107,6 +121,15 @@ BarWidget {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.focusBorderEnabled = String(text || "").trim() === "on"
+    }
+  }
+
+  Process {
+    id: transparencyStatusProc
+    command: [root.helper, "transparency-status"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.transparencyEnabled = String(text || "").trim() === "on"
     }
   }
 
@@ -164,6 +187,21 @@ BarWidget {
       if (code !== 0 && root.lastError === "")
         root.lastError = root.localized("Fokusrahmen konnte nicht geändert werden", "Could not change focus border")
       if (focusBorderStatusProc.running) focusBorderStatusProc.running = false
+      Qt.callLater(root.refresh)
+    }
+  }
+
+  Process {
+    id: transparencyActionProc
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.lastError = String(text || "").trim()
+    }
+    onExited: function(code) {
+      root.transparencyBusy = false
+      if (code !== 0 && root.lastError === "")
+        root.lastError = root.localized("Transparenz konnte nicht geändert werden", "Could not change transparency")
+      if (transparencyStatusProc.running) transparencyStatusProc.running = false
       Qt.callLater(root.refresh)
     }
   }
@@ -247,6 +285,21 @@ BarWidget {
         enabled: !root.focusBorderBusy
         opacity: enabled ? 1.0 : 0.55
         onClicked: root.toggleFocusBorder()
+      }
+
+      Toggle {
+        width: parent.width
+        label: root.localized("Transparenz", "Transparency")
+        description: root.transparencyEnabled
+          ? root.localized("Wie im normalen Kachelmodus", "Same as normal tiling mode")
+          : root.localized("Alle Fenster vollständig deckend", "All windows fully opaque")
+        checked: root.transparencyEnabled
+        foreground: root.bar.foreground
+        accent: Color.accent
+        fontFamily: root.bar.fontFamily
+        enabled: !root.transparencyBusy
+        opacity: enabled ? 1.0 : 0.55
+        onClicked: root.toggleTransparency()
       }
 
       PanelSeparator {

@@ -82,6 +82,8 @@ The menu automatically follows the desktop locale: German for a `de*` locale, En
 
 The **Focus border / Fokusrahmen** switch controls the active-window border while Floating Mode is on. Leave it enabled to keep the configured focus color, or disable it to give the focused window the same border color as inactive windows. The normal focus border is restored automatically when Floating Mode is turned off, and the preference persists across shell and login restarts.
 
+The **Transparency / Transparenz** switch keeps Omarchy's normal tiling opacity by default. Turn it off to make active and inactive windows fully opaque while Floating Mode is active. The normal opacity is restored on leaving Floating Mode, and the preference persists across restarts.
+
 Under **Window snap / Fenster-Snap**, the left and right screen edges can be configured independently:
 
 - **Quarters / Viertel** keeps the upper and lower quarter zones on that side
@@ -161,7 +163,7 @@ If the widget is unavailable while Floating Mode is still active, restore tiling
 
 ## How it works
 
-The headless service watches for newly mapped tiled windows while the mode is enabled. Geometry is calculated in Hyprland's logical coordinate space, so fractional scaling and large displays remain predictable. Each transition is sent as one animation-free Hyprland batch to avoid visible intermediate layouts.
+While the mode is enabled, a named Hyprland rule floats, sizes, and centers newly mapped tiled windows before their first frame. The headless service records the rule's window tag and remains as a recovery path for windows that reject their initial compositor command. Geometry is calculated in Hyprland's logical coordinate space, so fractional scaling and large displays remain predictable. Each recovery transition is sent as one animation-free Hyprland batch to avoid visible intermediate layouts.
 
 Only window addresses changed by Floating Mode are recorded. When the mode is disabled, only those windows return to tiling.
 
