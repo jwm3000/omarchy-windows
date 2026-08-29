@@ -6,6 +6,12 @@ One click turns the current desktop into a calm, free-form workspace. Windows ke
 
 ![Floating Mode on a large desktop](preview.png)
 
+## Screenshots
+
+| Cascaded floating windows | Floating Mode settings |
+| --- | --- |
+| ![Three floating terminal windows opened with a cascading offset](floating-cascade.png) | ![Floating Mode settings with focus border, transparency, gaps, and snap controls](floating-settings.png) |
+
 ## What it does
 
 - Toggles between tiled and floating workflows from one Omarchy bar button
