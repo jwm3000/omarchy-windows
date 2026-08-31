@@ -3,6 +3,15 @@ hl.plugin.load([====[@SNAP_PLUGIN_PATH@]====])
 
 hl.config({
   general = {
+    -- Native directional resizing for floating windows: sides change only
+    -- their matching axis, while corners change width and height together.
+    -- The extended grab area keeps thin themed borders easy to hit, and
+    -- Hyprland supplies the matching horizontal, vertical or diagonal cursor.
+    resize_on_border = true,
+    extend_border_grab_area = 12,
+    hover_icon_on_border = true,
+    resize_corner = 0, -- never force a corner when a side was grabbed
+
     -- Hyprland's native magnetic snap keeps freely placed windows aligned to
     -- nearby windows and monitor edges without changing their size.
     snap = {

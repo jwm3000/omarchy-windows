@@ -9,6 +9,7 @@ namespace {
 
     using AeroSnap::Point;
     using AeroSnap::Rect;
+    using AeroSnap::ResizeEdge;
     using AeroSnap::Zone;
 
     void expect(const bool condition, const std::string_view message) {
@@ -32,6 +33,18 @@ namespace {
 int main() {
     const Rect ultrawide{0, 0, 4096, 1152};
     const Rect widescreen{0, 0, 1920, 1080};
+    const Rect window{100, 100, 800, 600};
+
+    expect(AeroSnap::resizeEdgeAt(Point{95, 400}, window, 12, 20) == ResizeEdge::Left, "left side changes width only");
+    expect(AeroSnap::resizeEdgeAt(Point{905, 400}, window, 12, 20) == ResizeEdge::Right, "right side changes width only");
+    expect(AeroSnap::resizeEdgeAt(Point{500, 95}, window, 12, 20) == ResizeEdge::Top, "top side changes height only");
+    expect(AeroSnap::resizeEdgeAt(Point{500, 705}, window, 12, 20) == ResizeEdge::Bottom, "bottom side changes height only");
+    expect(AeroSnap::resizeEdgeAt(Point{95, 95}, window, 12, 20) == ResizeEdge::TopLeft, "top-left corner changes both axes");
+    expect(AeroSnap::resizeEdgeAt(Point{905, 95}, window, 12, 20) == ResizeEdge::TopRight, "top-right corner changes both axes");
+    expect(AeroSnap::resizeEdgeAt(Point{95, 705}, window, 12, 20) == ResizeEdge::BottomLeft, "bottom-left corner changes both axes");
+    expect(AeroSnap::resizeEdgeAt(Point{905, 705}, window, 12, 20) == ResizeEdge::BottomRight, "bottom-right corner changes both axes");
+    expect(!AeroSnap::resizeEdgeAt(Point{105, 400}, window, 12, 20), "application content is never captured");
+    expect(!AeroSnap::resizeEdgeAt(Point{80, 400}, window, 12, 20), "points beyond the grab area are ignored");
 
     expect(AeroSnap::columnsForMonitor(ultrawide, "auto") == 3, "auto selects thirds above 16:9");
     expect(AeroSnap::columnsForMonitor(widescreen, "auto") == 2, "auto keeps exact 16:9 in halves");

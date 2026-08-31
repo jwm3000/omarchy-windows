@@ -32,6 +32,50 @@ namespace AeroSnap {
         Maximize,
     };
 
+    enum class ResizeEdge {
+        Top,
+        Bottom,
+        Left,
+        Right,
+        TopLeft,
+        TopRight,
+        BottomLeft,
+        BottomRight,
+    };
+
+    inline std::optional<ResizeEdge> resizeEdgeAt(const Point cursor, const Rect box, const double grab, const double cornerSpan) {
+        if (box.w <= 0 || box.h <= 0 || grab < 0 || cornerSpan < 0)
+            return std::nullopt;
+
+        const bool inHitBox = cursor.x >= box.x - grab && cursor.x <= box.x + box.w + grab && cursor.y >= box.y - grab && cursor.y <= box.y + box.h + grab;
+        const bool inContent = cursor.x >= box.x && cursor.x <= box.x + box.w && cursor.y >= box.y && cursor.y <= box.y + box.h;
+        if (!inHitBox || inContent)
+            return std::nullopt;
+
+        const bool nearTop    = cursor.y < box.y + cornerSpan;
+        const bool nearBottom = cursor.y > box.y + box.h - cornerSpan;
+        const bool nearLeft   = cursor.x < box.x + cornerSpan;
+        const bool nearRight  = cursor.x > box.x + box.w - cornerSpan;
+
+        if (nearTop && nearLeft)
+            return ResizeEdge::TopLeft;
+        if (nearTop && nearRight)
+            return ResizeEdge::TopRight;
+        if (nearBottom && nearLeft)
+            return ResizeEdge::BottomLeft;
+        if (nearBottom && nearRight)
+            return ResizeEdge::BottomRight;
+        if (cursor.y < box.y)
+            return ResizeEdge::Top;
+        if (cursor.y > box.y + box.h)
+            return ResizeEdge::Bottom;
+        if (cursor.x < box.x)
+            return ResizeEdge::Left;
+        if (cursor.x > box.x + box.w)
+            return ResizeEdge::Right;
+        return std::nullopt;
+    }
+
     inline int columnsForMonitor(const Rect monitor, const std::string_view configuredColumns) {
         if (configuredColumns == "2")
             return 2;

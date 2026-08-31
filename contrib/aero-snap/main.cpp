@@ -12,12 +12,14 @@
 #include <hyprland/src/config/values/types/StringValue.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
+#include <hyprland/src/desktop/state/ViewState.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/layout/space/Space.hpp>
 #include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
+#include <hyprland/src/render/decorations/DecorationPositioner.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/pass/RectPassElement.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
@@ -103,6 +105,7 @@ namespace {
         std::string               gapsDisabledMarker;
         std::optional<SPreview>   preview;
         std::optional<SDragState> drag;
+        bool                      directionalResizeActive = false;
         std::vector<SSnapRecord>  records;
         UP<SEventLoopDoLaterLock> pendingApply;
         UP<SEventLoopDoLaterLock> pendingLuaRegistration;
@@ -303,6 +306,41 @@ namespace {
             return true;
 
         return access(state->enabledMarker.c_str(), F_OK) == 0;
+    }
+
+    std::optional<Layout::eRectCorner> resizeEdgeAtCursor(const PHLWINDOW& window, const Vector2D cursor) {
+        if (!Desktop::View::validMapped(window) || !window->m_target || !window->m_target->floating() || Fullscreen::controller()->isFullscreen(window))
+            return std::nullopt;
+
+        // Preserve interactive decorations such as the hyprbars titlebar and
+        // its buttons. Only the compositor-owned border grab area is ours.
+        for (const auto& decoration : window->m_windowDecorations) {
+            if (!(decoration->getDecorationFlags() & DECORATION_ALLOWS_MOUSE_INPUT))
+                continue;
+            if (g_pDecorationPositioner->getWindowDecorationBox(decoration.get()).containsPoint(cursor))
+                return std::nullopt;
+        }
+
+        static auto extendValue = CConfigValue<Config::INTEGER>("general:extend_border_grab_area");
+        const int   border       = window->getRealBorderSize();
+        const double grab        = std::max(0, static_cast<int>(*extendValue) + border);
+        const CBox   box         = window->getWindowMainSurfaceBox();
+        const double cornerSpan = window->rounding() + border + 10.0;
+        const auto edge = AeroSnap::resizeEdgeAt({cursor.x, cursor.y}, toRect(box), grab, cornerSpan);
+        if (!edge)
+            return std::nullopt;
+
+        switch (*edge) {
+            case AeroSnap::ResizeEdge::Top: return Layout::CORNER_TOP;
+            case AeroSnap::ResizeEdge::Bottom: return Layout::CORNER_BOTTOM;
+            case AeroSnap::ResizeEdge::Left: return Layout::CORNER_LEFT;
+            case AeroSnap::ResizeEdge::Right: return Layout::CORNER_RIGHT;
+            case AeroSnap::ResizeEdge::TopLeft: return Layout::CORNER_TOPLEFT;
+            case AeroSnap::ResizeEdge::TopRight: return Layout::CORNER_TOPRIGHT;
+            case AeroSnap::ResizeEdge::BottomLeft: return Layout::CORNER_BOTTOMLEFT;
+            case AeroSnap::ResizeEdge::BottomRight: return Layout::CORNER_BOTTOMRIGHT;
+        }
+        std::unreachable();
     }
 
     PHLWORKSPACE activeWorkspace(const PHLMONITOR& monitor) {
@@ -614,7 +652,34 @@ namespace {
         setPreview(monitor, placement->previewBox);
     }
 
-    void onMouseButton(const IPointer::SButtonEvent event) {
+    void onMouseButton(const IPointer::SButtonEvent event, Event::SCallbackInfo& info) {
+        if (!state || event.button != BTN_LEFT)
+            return;
+
+        if (state->directionalResizeActive) {
+            if (event.state == WL_POINTER_BUTTON_STATE_RELEASED) {
+                if (g_layoutManager->dragController()->target())
+                    g_layoutManager->endDragTarget();
+                state->directionalResizeActive = false;
+                info.cancelled                 = true;
+            }
+            return;
+        }
+
+        if (event.state == WL_POINTER_BUTTON_STATE_PRESSED && floatingModeActive() && !g_layoutManager->dragController()->target()) {
+            const Vector2D cursor = g_pInputManager->getMouseCoordsInternal();
+            const auto window = Desktop::viewState()->hitTest().windowAt(
+                cursor, Desktop::View::ALLOW_FLOATING | Desktop::View::RESERVED_EXTENTS | Desktop::View::INPUT_EXTENTS);
+            const auto edge = resizeEdgeAtCursor(window, cursor);
+            if (edge) {
+                forgetRestoreBox(window);
+                g_layoutManager->beginDragTarget(window->m_target, MBIND_RESIZE, *edge);
+                state->directionalResizeActive = true;
+                info.cancelled                 = true;
+                return;
+            }
+        }
+
         if (!state || event.state != WL_POINTER_BUTTON_STATE_RELEASED || event.button != BTN_LEFT || !state->drag)
             return;
 
@@ -757,7 +822,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     });
 
     state->mouseMoveListener      = Event::bus()->m_events.input.mouse.move.listen([](Vector2D cursor, Event::SCallbackInfo& info) { onMouseMove(cursor, info); });
-    state->mouseButtonListener    = Event::bus()->m_events.input.mouse.button.listen([](IPointer::SButtonEvent event, Event::SCallbackInfo&) { onMouseButton(event); });
+    state->mouseButtonListener = Event::bus()->m_events.input.mouse.button.listen(
+        [](IPointer::SButtonEvent event, Event::SCallbackInfo& info) { onMouseButton(event, info); });
     state->renderListener         = Event::bus()->m_events.render.stage.listen([](eRenderStage stageValue) { onRenderStage(stageValue); });
     state->windowDestroyListener  = Event::bus()->m_events.window.destroy.listen([](PHLWINDOWREF window) {
         if (!state)
@@ -773,7 +839,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     state->windowOpenLateListener = Event::bus()->m_events.window.openLate.listen([](PHLWINDOW window) { cascadeOpenedWindow(window); });
 
     HyprlandAPI::reloadConfig();
-    return {"omarchy-windows-snap", "Aero-style drag snap zones for Omarchy Floating Mode", "Norbert Winter and contributors", "1.0"};
+    return {"omarchy-windows-snap", "Aero-style drag snap zones and directional border resizing for Omarchy Floating Mode", "Norbert Winter and contributors", "1.1"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT() {

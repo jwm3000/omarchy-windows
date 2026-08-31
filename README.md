@@ -24,6 +24,7 @@ One click turns the current desktop into a calm, free-form workspace. Windows ke
 - Leaves windows that were already floating untouched when returning to tiled mode
 - Exits maximized or fullscreen state before restoring managed windows to tiling
 - Adds a compact native titlebar for dragging, maximizing, and closing windows
+- Resizes floating windows from every side and corner with native directional mouse cursors
 - Magnetically aligns freely placed windows with nearby windows and monitor edges
 - Snaps dragged windows into full-height columns, corner quarters, or maximization with a live preview
 - Restores a window's previous size when it is dragged away from a snap zone
@@ -90,6 +91,8 @@ The **Focus border / Fokusrahmen** switch controls the active-window border whil
 
 The **Transparency / Transparenz** switch keeps Omarchy's normal tiling opacity by default. Turn it off to make active and inactive windows fully opaque while Floating Mode is active. The normal opacity is restored on leaving Floating Mode, and the preference persists across restarts.
 
+The **Titlebar transparency / Titelleisten-Transparenz** switch controls only the native titlebar. It is slightly transparent by default; turn the switch off for a fully opaque titlebar. The preference applies immediately and persists across restarts.
+
 Under **Window snap / Fenster-Snap**, the left and right screen edges can be configured independently:
 
 - **Quarters / Viertel** keeps the upper and lower quarter zones on that side
@@ -120,6 +123,8 @@ In Floating Mode, use either the native titlebar or `Super`+drag to move a windo
 - Drag to the top center to maximize
 - Move away from an edge before releasing to cancel the snap
 - Drag a snapped window away to recover its pre-snap size
+
+To resize a floating window, move the pointer to a border until the directional resize cursor appears, then drag. The left and right sides change only the width, the top and bottom sides change only the height, and corners change both dimensions together. A 12-pixel compositor-native grab area makes the thin visible border easy to target without adding an overlay window. The bundled native module passes the detected side or corner explicitly to Hyprland's drag controller, keeping the resize operation consistent with the cursor shown before the click.
 
 Hyprland draws a blurred blue preview with a 200 ms transition between zones. The square titlebar button toggles maximization; the close button closes the window.
 

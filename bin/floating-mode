@@ -16,6 +16,7 @@ left_snap_half_file="$settings_dir/left-snap-half"
 right_snap_half_file="$settings_dir/right-snap-half"
 snap_gaps_disabled_file="$settings_dir/snap-gaps-disabled"
 transparency_disabled_file="$settings_dir/transparency-disabled"
+titlebar_transparency_disabled_file="$settings_dir/titlebar-transparency-disabled"
 keybindings_marker="$state_dir/keybindings"
 managed_max_bytes=8192
 managed_max_entries=256
@@ -294,7 +295,7 @@ prepare_settings_dir() {
     validate_private_dir "$settings_dir" "settings directory"
   fi
   chmod 700 -- "$settings_dir"
-  for settings_file in "$focus_border_disabled_file" "$left_snap_half_file" "$right_snap_half_file" "$snap_gaps_disabled_file" "$transparency_disabled_file"; do
+  for settings_file in "$focus_border_disabled_file" "$left_snap_half_file" "$right_snap_half_file" "$snap_gaps_disabled_file" "$transparency_disabled_file" "$titlebar_transparency_disabled_file"; do
     if [[ -e "$settings_file" || -L "$settings_file" ]]; then
       "$state_helper" check "$settings_file"
     fi
@@ -327,6 +328,17 @@ transparency_enabled() {
 
 apply_transparency_preference() {
   if transparency_enabled; then set_opaque_rule false; else set_opaque_rule true; fi
+}
+
+titlebar_transparency_enabled() {
+  [[ ! -e "$titlebar_transparency_disabled_file" && ! -L "$titlebar_transparency_disabled_file" ]]
+}
+
+apply_titlebar_transparency_preference() {
+  local color="rgba(333333ff)"
+  titlebar_transparency_enabled && color="rgba(333333c0)"
+  hyprbars_loaded || return 0
+  hyprctl eval "hl.config({ plugin = { hyprbars = { bar_color = \"$color\" } } })" >/dev/null
 }
 
 focus_border_enabled() {
@@ -371,6 +383,7 @@ restore_configured_focus_border() {
   if state_file_exists "$enabled_file"; then
     rm -f -- "$keybindings_marker"
     set_titlebars true
+    apply_titlebar_transparency_preference
     install_keybindings
   fi
 }
@@ -456,6 +469,7 @@ sync_windows() {
   state_file_exists "$managed_file" || die "managed state is missing while Floating Mode is enabled"
   set_open_rule true
   apply_transparency_preference
+  apply_titlebar_transparency_preference
   install_keybindings
   local snapshot monitors address
   snapshot="$(clients)"
@@ -596,8 +610,22 @@ case "${1:-}" in
     prepare_settings_dir
     if transparency_enabled; then printf 'on\n'; else printf 'off\n'; fi
     ;;
+  titlebar-transparency-on)
+    prepare_settings_dir
+    rm -f -- "$titlebar_transparency_disabled_file"
+    apply_titlebar_transparency_preference
+    ;;
+  titlebar-transparency-off)
+    prepare_settings_dir
+    truncate_state_file "$titlebar_transparency_disabled_file"
+    apply_titlebar_transparency_preference
+    ;;
+  titlebar-transparency-status)
+    prepare_settings_dir
+    if titlebar_transparency_enabled; then printf 'on\n'; else printf 'off\n'; fi
+    ;;
   *)
-    echo "usage: floating-mode on|off|toggle|sync|status|focus-border-on|focus-border-off|focus-border-status|snap-left-quarter|snap-left-half|snap-left-status|snap-right-quarter|snap-right-half|snap-right-status|snap-gaps-on|snap-gaps-off|snap-gaps-status|transparency-on|transparency-off|transparency-status" >&2
+    echo "usage: floating-mode on|off|toggle|sync|status|focus-border-on|focus-border-off|focus-border-status|snap-left-quarter|snap-left-half|snap-left-status|snap-right-quarter|snap-right-half|snap-right-status|snap-gaps-on|snap-gaps-off|snap-gaps-status|transparency-on|transparency-off|transparency-status|titlebar-transparency-on|titlebar-transparency-off|titlebar-transparency-status" >&2
     exit 2
     ;;
 esac

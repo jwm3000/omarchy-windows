@@ -11,12 +11,14 @@ BarWidget {
   property bool floatingMode: false
   property bool focusBorderEnabled: true
   property bool transparencyEnabled: true
+  property bool titlebarTransparencyEnabled: true
   property string leftSnapMode: "quarter"
   property string rightSnapMode: "quarter"
   property bool snapGapsEnabled: true
   property bool busy: false
   property bool focusBorderBusy: false
   property bool transparencyBusy: false
+  property bool titlebarTransparencyBusy: false
   property bool snapBusy: false
   property bool settingsOpen: false
   property string lastError: ""
@@ -41,6 +43,7 @@ BarWidget {
     if (!statusProc.running) statusProc.running = true
     if (!focusBorderStatusProc.running) focusBorderStatusProc.running = true
     if (!transparencyStatusProc.running) transparencyStatusProc.running = true
+    if (!titlebarTransparencyStatusProc.running) titlebarTransparencyStatusProc.running = true
     if (!leftSnapStatusProc.running) leftSnapStatusProc.running = true
     if (!rightSnapStatusProc.running) rightSnapStatusProc.running = true
     if (!snapGapsStatusProc.running) snapGapsStatusProc.running = true
@@ -87,6 +90,17 @@ BarWidget {
     transparencyActionProc.running = true
   }
 
+  function toggleTitlebarTransparency() {
+    if (titlebarTransparencyActionProc.running) return
+    titlebarTransparencyBusy = true
+    lastError = ""
+    titlebarTransparencyActionProc.command = [
+      root.helper,
+      root.titlebarTransparencyEnabled ? "titlebar-transparency-off" : "titlebar-transparency-on"
+    ]
+    titlebarTransparencyActionProc.running = true
+  }
+
   function setSnapMode(side, mode) {
     if (snapActionProc.running) return
     snapBusy = true
@@ -130,6 +144,15 @@ BarWidget {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.transparencyEnabled = String(text || "").trim() === "on"
+    }
+  }
+
+  Process {
+    id: titlebarTransparencyStatusProc
+    command: [root.helper, "titlebar-transparency-status"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.titlebarTransparencyEnabled = String(text || "").trim() === "on"
     }
   }
 
@@ -202,6 +225,21 @@ BarWidget {
       if (code !== 0 && root.lastError === "")
         root.lastError = root.localized("Transparenz konnte nicht geändert werden", "Could not change transparency")
       if (transparencyStatusProc.running) transparencyStatusProc.running = false
+      Qt.callLater(root.refresh)
+    }
+  }
+
+  Process {
+    id: titlebarTransparencyActionProc
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.lastError = String(text || "").trim()
+    }
+    onExited: function(code) {
+      root.titlebarTransparencyBusy = false
+      if (code !== 0 && root.lastError === "")
+        root.lastError = root.localized("Titelleisten-Transparenz konnte nicht geändert werden", "Could not change titlebar transparency")
+      if (titlebarTransparencyStatusProc.running) titlebarTransparencyStatusProc.running = false
       Qt.callLater(root.refresh)
     }
   }
@@ -300,6 +338,21 @@ BarWidget {
         enabled: !root.transparencyBusy
         opacity: enabled ? 1.0 : 0.55
         onClicked: root.toggleTransparency()
+      }
+
+      Toggle {
+        width: parent.width
+        label: root.localized("Titelleisten-Transparenz", "Titlebar transparency")
+        description: root.titlebarTransparencyEnabled
+          ? root.localized("Titelleiste ist leicht transparent", "Titlebar is slightly transparent")
+          : root.localized("Titelleiste ist vollständig deckend", "Titlebar is fully opaque")
+        checked: root.titlebarTransparencyEnabled
+        foreground: root.bar.foreground
+        accent: Color.accent
+        fontFamily: root.bar.fontFamily
+        enabled: !root.titlebarTransparencyBusy
+        opacity: enabled ? 1.0 : 0.55
+        onClicked: root.toggleTitlebarTransparency()
       }
 
       PanelSeparator {

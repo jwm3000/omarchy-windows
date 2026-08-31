@@ -2,6 +2,11 @@
 
 All notable changes to Floating Mode are documented here.
 
+## 1.5.0 — 2026-08-31
+
+- Add a persistent switch for enabling or disabling native titlebar transparency
+- Enable directional mouse resizing: sides affect only their matching axis, corners affect both axes, with matching cursors and an extended border grab area
+
 ## 1.4.0 — 2026-08-29
 
 - Open newly mapped windows directly at their centered floating size instead of briefly showing a full-work-area tiled frame
