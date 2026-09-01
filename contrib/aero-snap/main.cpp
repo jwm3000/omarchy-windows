@@ -100,6 +100,9 @@ namespace {
     struct SPluginState {
         SConfigValues             config;
         std::string               enabledMarker;
+        std::string               workspaceMarkerPrefix;
+        std::string               currentWorkspaceOnlyMarker;
+        std::string               focusBorderDisabledMarker;
         std::string               leftHalfMarker;
         std::string               rightHalfMarker;
         std::string               gapsDisabledMarker;
@@ -107,13 +110,17 @@ namespace {
         std::optional<SDragState> drag;
         bool                      directionalResizeActive = false;
         std::vector<SSnapRecord>  records;
+        std::vector<PHLWINDOWREF> noFocusBorderWindows;
         UP<SEventLoopDoLaterLock> pendingApply;
         UP<SEventLoopDoLaterLock> pendingLuaRegistration;
+        UP<SEventLoopDoLaterLock> pendingBorderRestore;
         CHyprSignalListener       mouseMoveListener;
         CHyprSignalListener       mouseButtonListener;
         CHyprSignalListener       renderListener;
         CHyprSignalListener       windowDestroyListener;
         CHyprSignalListener       windowFloatingListener;
+        CHyprSignalListener       windowActiveListener;
+        CHyprSignalListener       configReloadedListener;
         CHyprSignalListener       windowOpenLateListener;
     };
 
@@ -331,12 +338,15 @@ namespace {
             return std::nullopt;
 
         switch (*edge) {
-            case AeroSnap::ResizeEdge::Top: return Layout::CORNER_TOP;
+            // Reserve the complete upper edge for hyprbars dragging. This
+            // includes both upper corners, whose enlarged grab areas otherwise
+            // make titlebar drag-and-drop unreliable near the ends.
+            case AeroSnap::ResizeEdge::Top:
+            case AeroSnap::ResizeEdge::TopLeft:
+            case AeroSnap::ResizeEdge::TopRight: return std::nullopt;
             case AeroSnap::ResizeEdge::Bottom: return Layout::CORNER_BOTTOM;
             case AeroSnap::ResizeEdge::Left: return Layout::CORNER_LEFT;
             case AeroSnap::ResizeEdge::Right: return Layout::CORNER_RIGHT;
-            case AeroSnap::ResizeEdge::TopLeft: return Layout::CORNER_TOPLEFT;
-            case AeroSnap::ResizeEdge::TopRight: return Layout::CORNER_TOPRIGHT;
             case AeroSnap::ResizeEdge::BottomLeft: return Layout::CORNER_BOTTOMLEFT;
             case AeroSnap::ResizeEdge::BottomRight: return Layout::CORNER_BOTTOMRIGHT;
         }
@@ -379,6 +389,59 @@ namespace {
         g_layoutManager->setTargetGeom(box, window->m_target);
         window->m_target->warpPositionSize();
         window->m_target->damageEntire();
+    }
+
+    void forceInactiveBorder(const PHLWINDOW& window) {
+        if (!Desktop::View::validMapped(window))
+            return;
+
+        if (state && std::ranges::none_of(state->noFocusBorderWindows, [&](const auto& tracked) { return tracked == window; }))
+            state->noFocusBorderWindows.emplace_back(window);
+
+        static auto inactiveBorderValue = CConfigValue<Config::IComplexConfigValue>("general:col.inactive_border");
+        const auto   inactiveBorder = *sc<Config::CGradientValueData*>(inactiveBorderValue.ptr());
+        window->m_realBorderColor         = inactiveBorder;
+        window->m_realBorderColorPrevious = inactiveBorder;
+        window->m_borderFadeAnimationProgress->setValueAndWarp(1.F);
+    }
+
+    void restoreConfiguredBorder(const PHLWINDOW& window) {
+        if (!Desktop::View::validMapped(window))
+            return;
+
+        static auto activeBorderValue   = CConfigValue<Config::IComplexConfigValue>("general:col.active_border");
+        static auto inactiveBorderValue = CConfigValue<Config::IComplexConfigValue>("general:col.inactive_border");
+        const auto& configured = Desktop::focusState()->isWindowActive(window) ?
+            *sc<Config::CGradientValueData*>(activeBorderValue.ptr()) :
+            *sc<Config::CGradientValueData*>(inactiveBorderValue.ptr());
+        window->m_realBorderColor         = configured;
+        window->m_realBorderColorPrevious = configured;
+        window->m_borderFadeAnimationProgress->setValueAndWarp(1.F);
+        g_pHyprRenderer->damageWindow(window);
+    }
+
+    void settleNoFocusBorder(const PHLWINDOW& window) {
+        if (!state || !floatingModeActive() || !Desktop::View::validMapped(window) || !window->m_target || !window->m_target->floating())
+            return;
+
+        const auto workspace = window->m_target->workspace();
+        if (!workspace)
+            return;
+
+        const bool perWorkspace = std::filesystem::exists(state->currentWorkspaceOnlyMarker);
+        const bool modeEnabled  = !perWorkspace || std::filesystem::exists(state->workspaceMarkerPrefix + std::to_string(workspace->m_id));
+        const bool focusDisabled = std::filesystem::exists(state->focusBorderDisabledMarker +
+                                                            (perWorkspace ? ".workspace." + std::to_string(workspace->m_id) : ""));
+        if (!modeEnabled || !focusDisabled)
+            return;
+
+        // Hyprland starts a border cross-fade when the newly mapped window
+        // receives focus, after its rules have already selected the inactive
+        // color. openLate runs after that focus update but before the next
+        // render pass, so collapse only this stale creation-time transition.
+        // Later focus changes retain the normal configured border animation.
+        forceInactiveBorder(window);
+        g_pHyprRenderer->damageWindow(window);
     }
 
     std::optional<SPlacement> placementFor(const SP<Layout::ITarget>& target, const PHLMONITOR& monitor, const Zone zone) {
@@ -700,7 +763,34 @@ namespace {
     }
 
     void onRenderStage(const eRenderStage stageValue) {
-        if (!state || stageValue != RENDER_POST_WINDOWS || !state->preview)
+        if (!state)
+            return;
+
+        if (stageValue == RENDER_PRE_WINDOWS) {
+            // Dynamic rules and delayed per-window property repair can both
+            // run after openLate. Enforce the no-focus invariant at the last
+            // possible point before borders are submitted to the render pass.
+            std::erase_if(state->noFocusBorderWindows, [](const auto& tracked) {
+                const auto window = tracked.lock();
+                if (!Desktop::View::validMapped(window))
+                    return true;
+                const bool stillNoFocus = window->m_target && window->m_target->floating() && window->m_ruleApplicator &&
+                                          window->m_ruleApplicator->m_tagKeeper.isTagged("floating-mode-no-focus");
+                if (!stillNoFocus) {
+                    window->updateDecorationValues();
+                    restoreConfiguredBorder(window);
+                }
+                return !stillNoFocus;
+            });
+            for (const auto& window : Desktop::windowState()->windows()) {
+                if (Desktop::View::validMapped(window) && window->m_target && window->m_target->floating() && window->m_ruleApplicator &&
+                    window->m_ruleApplicator->m_tagKeeper.isTagged("floating-mode-no-focus"))
+                    forceInactiveBorder(window);
+            }
+            return;
+        }
+
+        if (stageValue != RENDER_POST_WINDOWS || !state->preview)
             return;
 
         const auto monitor = g_pHyprRenderer->renderData().pMonitor.lock();
@@ -768,6 +858,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     const auto* runtimeDirectory = std::getenv("XDG_RUNTIME_DIR");
     state->enabledMarker         = runtimeDirectory && *runtimeDirectory ? std::string{runtimeDirectory} + "/omarchy-floating-mode/enabled" :
                                                                            "/run/user/" + std::to_string(getuid()) + "/omarchy-floating-mode/enabled";
+    state->workspaceMarkerPrefix = runtimeDirectory && *runtimeDirectory ? std::string{runtimeDirectory} + "/omarchy-floating-mode/workspace." :
+                                                                          "/run/user/" + std::to_string(getuid()) + "/omarchy-floating-mode/workspace.";
     const auto* configHome = std::getenv("XDG_CONFIG_HOME");
     const auto* home       = std::getenv("HOME");
     const auto  settingsDirectory = configHome && *configHome ? std::string{configHome} + "/omarchy-floating-mode" :
@@ -775,6 +867,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     state->leftHalfMarker      = settingsDirectory + "/left-snap-half";
     state->rightHalfMarker     = settingsDirectory + "/right-snap-half";
     state->gapsDisabledMarker  = settingsDirectory + "/snap-gaps-disabled";
+    state->currentWorkspaceOnlyMarker = settingsDirectory + "/current-workspace-only";
+    state->focusBorderDisabledMarker  = settingsDirectory + "/focus-border-disabled";
 
     state->config.enabled = makeShared<Config::Values::CBoolValue>("plugin:omarchy_windows_snap:enabled", "Enable Aero-style drag snap zones", true);
     state->config.floatingModeOnly =
@@ -829,17 +923,50 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         if (!state)
             return;
         std::erase_if(state->records, [&](const auto& record) { return record.window == window; });
+        std::erase(state->noFocusBorderWindows, window);
         if (state->drag && state->drag->target && state->drag->target->window() == window.lock())
             resetDrag();
     });
     state->windowFloatingListener = Event::bus()->m_events.window.floating.listen([](PHLWINDOW window) {
-        if (state && Desktop::View::validMapped(window) && window->m_target && !window->m_target->floating())
+        if (state && Desktop::View::validMapped(window) && window->m_target && !window->m_target->floating()) {
             forgetRestoreBox(window);
+            window->updateDecorationValues();
+            restoreConfiguredBorder(window);
+        }
     });
-    state->windowOpenLateListener = Event::bus()->m_events.window.openLate.listen([](PHLWINDOW window) { cascadeOpenedWindow(window); });
+    state->windowActiveListener = Event::bus()->m_events.window.active.listen([](PHLWINDOW window, Desktop::eFocusReason) {
+        if (state && Desktop::View::validMapped(window) && window->m_target && !window->m_target->floating()) {
+            window->updateDecorationValues();
+            restoreConfiguredBorder(window);
+        }
+    });
+    state->configReloadedListener = Event::bus()->m_events.config.reloaded.listen([] {
+        if (!state)
+            return;
+        for (const auto& window : Desktop::windowState()->windows()) {
+            if (Desktop::View::validMapped(window) && window->m_target && !window->m_target->floating()) {
+                window->updateDecorationValues();
+                restoreConfiguredBorder(window);
+            }
+        }
+    });
+    state->windowOpenLateListener = Event::bus()->m_events.window.openLate.listen([](PHLWINDOW window) {
+        cascadeOpenedWindow(window);
+        settleNoFocusBorder(window);
+    });
 
     HyprlandAPI::reloadConfig();
-    return {"omarchy-windows-snap", "Aero-style drag snap zones and directional border resizing for Omarchy Floating Mode", "Norbert Winter and contributors", "1.1"};
+    state->pendingBorderRestore = g_pEventLoopManager->doLaterLock([] {
+        if (!state)
+            return;
+        for (const auto& window : Desktop::windowState()->windows()) {
+            if (Desktop::View::validMapped(window) && window->m_target && !window->m_target->floating()) {
+                window->updateDecorationValues();
+                restoreConfiguredBorder(window);
+            }
+        }
+    });
+    return {"omarchy-windows-snap", "Aero-style drag snap zones and directional border resizing for Omarchy Floating Mode", "Norbert Winter and contributors", "1.8"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT() {

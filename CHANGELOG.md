@@ -1,11 +1,17 @@
 # Changelog
 
-## 1.6.0 — 2026-09-01
+## 1.7.0 — 2026-09-02
 
-- Kept the Omarchy screensaver fullscreen while Floating Mode is active
-- Added a persistent tiled-mode switch for resizing windows by dragging their borders
-- Added a persistent switch for applying Floating Mode globally or only to the current workspace
-- Hid Floating Mode titlebars on tiled windows outside the selected workspace
+- Enforced the configured inactive border color immediately before rendering floating no-focus windows, then restored Hyprland's normal decoration state as soon as a tracked window becomes tiled or focus borders are enabled
+- Restored native titlebars during the periodic Floating Mode sync after a Hyprland configuration reload
+- Made global switches linear by calculating every window placement in one pass, removing a duplicate rule refresh, and excluding special workspaces from the managed ledger
+- Removed full-client polling from compositor-synchronous switch transactions and stopped periodic sync before global tiling to eliminate multi-second races
+- Completed the visible switch immediately after the geometry batch and skipped redundant stock-opacity rewrites in transparent global mode
+- Scoped focus border, window transparency, and titlebar transparency preferences per workspace in current-workspace mode
+- Restored the complete themed focus-border gradient after returning to tiling
+- Cleared Floating Mode ownership and focus-suppression tags from restored tiled windows
+- Restored Hyprland's complete configured border gradient natively when windows return to tiling
+- Reserved the full upper window edge and upper corners for titlebar dragging instead of resizing
 - Saved focus-border and window-transparency preferences separately for every workspace when current-workspace scope is selected
 - Allowed multiple workspaces to remain in Floating Mode independently
 - Limited focus-border and opacity overrides to managed floating windows so tiled workspaces always keep their normal focus border and transparency
@@ -19,13 +25,19 @@
 - Added creation-time Hyprland rules per enabled workspace so newly opened windows enter Floating Mode immediately instead of relying on polling
 - Applied each workspace's focus-border preference at window creation so new floating windows never flash or retain the active border when it is disabled
 - Applied each workspace's window-transparency preference at creation so newly opened floating windows immediately use the selected opacity
-- Made titlebar transparency global so changing it on any workspace updates every workspace
 - Restored Omarchy's original window transparency when leaving Floating Mode by disabling opacity rules before clearing per-window overrides
 - Replaced ten polling helper processes with one atomic UI status snapshot and kept read-only status checks out of the operation lock
 - Limited individual-workspace mode transitions and preference refreshes to the selected workspace instead of resynchronizing every enabled workspace
 - Split opacity handling cleanly between creation-time rules for new windows and immediate per-window updates for already-open windows, with overrides cleared on return to Tiling
 - Reduced the background repair loop frequency because creation-time rules now handle normal window mapping immediately
 - Restored the exact stock Omarchy opacity profile for each window when leaving Floating Mode instead of leaving the last numeric value at 1.0
+
+## 1.6.0 — 2026-09-01
+
+- Kept the Omarchy screensaver fullscreen while Floating Mode is active
+- Added a persistent tiled-mode switch for resizing windows by dragging their borders
+- Added a persistent switch for applying Floating Mode globally or only to the current workspace
+- Hid Floating Mode titlebars on tiled windows outside the selected workspace
 
 All notable changes to Floating Mode are documented here.
 

@@ -137,10 +137,11 @@ merge_managed_workspace_windows() {
   register_temporary_file "$replacement"
   chmod 600 -- "$replacement"
   jq -r --arg workspace_ids "$workspace_ids" --rawfile managed "$ledger_snapshot" '
-    ($managed | split("\n") | map(select(length > 0))) as $existing
+    ([.[] | select(.mapped == true and .class != "org.omarchy.screensaver" and .workspace.id > 0) | .address]) as $eligible
+    | ($managed | split("\n") | map(select(length > 0 and (. as $address | $eligible | index($address) != null)))) as $existing
     | (($existing + [
         .[]
-        | select(.mapped == true and .class != "org.omarchy.screensaver")
+        | select(.mapped == true and .class != "org.omarchy.screensaver" and .workspace.id > 0)
         | .workspace.id as $workspace_id
         | select($workspace_ids == "" or (("," + $workspace_ids + ",") | contains("," + ($workspace_id | tostring) + ",")))
         | .address
@@ -190,44 +191,16 @@ tile_window_commands() {
     "dispatch hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"1\", window = \"address:$address\" });"\
 "dispatch hl.dsp.window.fullscreen_state({ internal = 0, client = 0, action = \"set\", window = \"address:$address\" });"\
 "dispatch hl.dsp.window.float({ action = \"off\", window = \"address:$address\" });"\
+"dispatch hl.dsp.window.tag({ tag = \"-floating-mode-managed\", window = \"address:$address\" });"\
 "dispatch hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"unset\", window = \"address:$address\" });"
 }
 
 transition_window_commands() {
-  local address="$1" snapshot="$2" monitors="$3"
+  local address="$1" monitor_x="$2" monitor_y="$3" work_width="$4" work_height="$5"
+  local current_x="$6" current_y="$7" current_width="$8" current_height="$9" peer_count="${10}"
   valid_address "$address" || return 0
 
-  local geometry monitor_x monitor_y
-  local work_width work_height current_x current_y current_width current_height peer_count
   local max_width max_height target_x target_y target_width target_height
-  geometry="$(jq -r --arg address "$address" --argjson monitors "$monitors" '
-      . as $clients
-      | $clients[] | select(.address == $address) as $window
-      | ($monitors[] | select(.id == $window.monitor)) as $monitor
-      | ($monitor.reserved // [0, 0, 0, 0]) as $reserved
-      | ($monitor.scale // 1) as $scale
-      | (if (($monitor.transform // 0) % 2) == 1 then $monitor.height else $monitor.width end) as $physical_width
-      | (if (($monitor.transform // 0) % 2) == 1 then $monitor.width else $monitor.height end) as $physical_height
-      | (($physical_width / $scale) | floor) as $logical_width
-      | (($physical_height / $scale) | floor) as $logical_height
-      | [
-          ($monitor.x + $reserved[0]),
-          ($monitor.y + $reserved[1]),
-          ($logical_width - $reserved[0] - $reserved[2]),
-          ($logical_height - $reserved[1] - $reserved[3]),
-          $window.at[0],
-          $window.at[1],
-          $window.size[0],
-          $window.size[1],
-          ([$clients[] | select(
-            .mapped == true
-            and .floating == false
-            and .workspace.id == $window.workspace.id
-          )] | length)
-        ] | @tsv
-    ' <<<"$snapshot" 2>/dev/null)" || return 0
-
-  IFS=$'\t' read -r monitor_x monitor_y work_width work_height current_x current_y current_width current_height peer_count <<<"$geometry"
   [[ "$work_width" =~ ^[0-9]+$ && "$work_height" =~ ^[0-9]+$ ]] || return 0
   [[ "$current_x" =~ ^-?[0-9]+$ && "$current_y" =~ ^-?[0-9]+$ ]] || return 0
   [[ "$current_width" =~ ^[0-9]+$ && "$current_height" =~ ^[0-9]+$ ]] || return 0
@@ -282,30 +255,33 @@ set_open_rule() {
 }
 
 configure_open_rules() {
-  local workspace_id code inactive_color focus_enabled transparency_value
+  local workspace_id code inactive_color focus_enabled transparency_value titlebar_value base_titlebar_color
   inactive_color="$(configured_border_color general:col.inactive_border)"
   if all_workspaces_enabled; then
     focus_enabled=false
     focus_border_enabled && focus_enabled=true
     transparency_value=false
     transparency_enabled && transparency_value=true
+    base_titlebar_color="rgba(333333ff)"
+    titlebar_transparency_enabled && base_titlebar_color="rgba(333333c0)"
     hyprctl eval "
       omarchy_floating_mode_disable_all_workspace_rules()
-      omarchy_floating_mode_open_rule:set_enabled(true)
-      omarchy_floating_mode_browser_rule:set_enabled(true)
-      omarchy_floating_mode_set_global_focus_border($focus_enabled, \"$inactive_color\")
+      omarchy_floating_mode_set_global_enabled(true, $focus_enabled, \"$inactive_color\")
       omarchy_floating_mode_opaque_rule:set_enabled(not $transparency_value)
+      hl.config({ plugin = { hyprbars = { bar_color = \"$base_titlebar_color\" } } })
     " >/dev/null
     return
   fi
-  code='omarchy_floating_mode_open_rule:set_enabled(false); omarchy_floating_mode_browser_rule:set_enabled(false); omarchy_floating_mode_set_global_focus_border(true, "'$inactive_color'"); omarchy_floating_mode_opaque_rule:set_enabled(false); omarchy_floating_mode_disable_all_workspace_rules();'
+  code='omarchy_floating_mode_set_global_enabled(false, true, "'$inactive_color'"); omarchy_floating_mode_opaque_rule:set_enabled(false); omarchy_floating_mode_disable_all_workspace_rules(); hl.config({ plugin = { hyprbars = { bar_color = "rgba(333333c0)" } } });'
   while IFS= read -r workspace_id; do
     [[ -n "$workspace_id" ]] || continue
     focus_enabled=false
     focus_border_enabled "$workspace_id" && focus_enabled=true
     transparency_value=false
     transparency_enabled "$workspace_id" && transparency_value=true
-    code+="omarchy_floating_mode_set_workspace_enabled($workspace_id, true, $focus_enabled, $transparency_value, \"$inactive_color\");"
+    titlebar_value=false
+    titlebar_transparency_enabled "$workspace_id" && titlebar_value=true
+    code+="omarchy_floating_mode_set_workspace_enabled($workspace_id, true, $focus_enabled, $transparency_value, $titlebar_value, \"$inactive_color\");"
   done < <(enabled_workspace_ids)
   hyprctl eval "$code" >/dev/null
 }
@@ -466,7 +442,7 @@ migrate_legacy_workspace_state() {
 
 copy_workspace_preferences_to_global() {
   local workspace_id="$1" base source
-  for base in "$focus_border_disabled_file" "$transparency_disabled_file"; do
+  for base in "$focus_border_disabled_file" "$transparency_disabled_file" "$titlebar_transparency_disabled_file"; do
     source="$base.workspace.$workspace_id"
     validate_setting_file "$source"
     validate_setting_file "$base"
@@ -476,33 +452,11 @@ copy_workspace_preferences_to_global() {
 
 copy_global_preferences_to_workspace() {
   local workspace_id="$1" base target
-  for base in "$focus_border_disabled_file" "$transparency_disabled_file"; do
+  for base in "$focus_border_disabled_file" "$transparency_disabled_file" "$titlebar_transparency_disabled_file"; do
     target="$base.workspace.$workspace_id"
     validate_setting_file "$base"
     validate_setting_file "$target"
     if [[ -e "$base" ]]; then truncate_state_file "$target"; else rm -f -- "$target"; fi
-  done
-}
-
-migrate_global_titlebar_transparency() {
-  local current_marker marker workspace_id workspace_markers
-  shopt -s nullglob
-  workspace_markers=("$titlebar_transparency_disabled_file".workspace.*)
-  shopt -u nullglob
-  ((${#workspace_markers[@]} > 0)) || return 0
-  if ! all_workspaces_enabled; then
-    workspace_id="$(active_workspace_id)"
-    current_marker="$titlebar_transparency_disabled_file.workspace.$workspace_id"
-    validate_setting_file "$current_marker"
-    if [[ -e "$current_marker" ]]; then
-      truncate_state_file "$titlebar_transparency_disabled_file"
-    else
-      rm -f -- "$titlebar_transparency_disabled_file"
-    fi
-  fi
-  for marker in "${workspace_markers[@]}"; do
-    validate_setting_file "$marker"
-    rm -f -- "$marker"
   done
 }
 
@@ -530,9 +484,7 @@ disable_runtime_integrations() {
   local resize_value=false
   mouse_resize_enabled && resize_value=true
   hyprctl eval "
-    omarchy_floating_mode_open_rule:set_enabled(false)
-    omarchy_floating_mode_browser_rule:set_enabled(false)
-    omarchy_floating_mode_set_global_focus_border(true, \"rgba(000000ff)\")
+    omarchy_floating_mode_set_global_enabled(false, true, \"rgba(000000ff)\")
     omarchy_floating_mode_disable_all_workspace_rules()
     omarchy_floating_mode_opaque_rule:set_enabled(false)
     hl.unbind(\"SUPER + CTRL + LEFT\")
@@ -579,18 +531,15 @@ apply_transparency_preference() {
 }
 
 titlebar_transparency_enabled() {
-  validate_setting_file "$titlebar_transparency_disabled_file"
-  [[ ! -e "$titlebar_transparency_disabled_file" && ! -L "$titlebar_transparency_disabled_file" ]]
+  local marker
+  marker="$(workspace_setting_file "$titlebar_transparency_disabled_file" "${1:-}")"
+  validate_setting_file "$marker"
+  [[ ! -e "$marker" && ! -L "$marker" ]]
 }
 
 apply_titlebar_transparency_preference() {
-  local color="rgba(333333ff)" workspace_id
-  workspace_id="$(runtime_workspace_id)"
-  if ! workspace_is_enabled "$workspace_id" || titlebar_transparency_enabled; then
-    color="rgba(333333c0)"
-  fi
   hyprbars_loaded || return 0
-  hyprctl eval "hl.config({ plugin = { hyprbars = { bar_color = \"$color\" } } })" >/dev/null
+  configure_open_rules
 }
 
 focus_border_enabled() {
@@ -641,11 +590,7 @@ window_transparency_commands() {
 }
 
 apply_window_preferences() {
-  local snapshot="$1" workspace_ids="$2" preference="${3:-all}" address workspace_id active_focus_value="" inactive_focus_value="" commands=""
-  if [[ "$preference" != transparency ]]; then
-    active_focus_value="$(configured_border_color general:col.active_border)"
-    inactive_focus_value="$(configured_border_color general:col.inactive_border)"
-  fi
+  local snapshot="$1" workspace_ids="$2" preference="${3:-all}" address workspace_id commands=""
   while IFS=$'\t' read -r address workspace_id opacity_profile; do
     [[ -n "$address" ]] || continue
     if [[ "$preference" != focus ]]; then
@@ -656,13 +601,6 @@ apply_window_preferences() {
         commands+="$(window_transparency_commands "$address" true "$opacity_profile")"
       else
         commands+="$(window_transparency_commands "$address" false)"
-      fi
-    fi
-    if [[ "$preference" != transparency ]]; then
-      if focus_border_enabled "$workspace_id"; then
-        commands+="dispatch hl.dsp.window.set_prop({ prop = \"active_border_color\", value = \"$active_focus_value\", window = \"address:$address\" });"
-      else
-        commands+="dispatch hl.dsp.window.set_prop({ prop = \"active_border_color\", value = \"$inactive_focus_value\", window = \"address:$address\" });"
       fi
     fi
   done < <(jq -r --arg workspace_ids "$workspace_ids" --rawfile managed "$managed_file" '
@@ -710,7 +648,7 @@ ui_status() {
     focus_border_enabled "$workspace_id" || focus=false
     transparency_enabled "$workspace_id" || transparency=false
   fi
-  titlebar_transparency_enabled || titlebar=false
+  if [[ "$floating" == true ]]; then titlebar_transparency_enabled "$workspace_id" || titlebar=false; fi
   mouse_resize_enabled || mouse_resize=false
   all_workspaces_enabled || all_workspaces=false
   [[ -e "$left_snap_half_file" ]] && left_snap="half"
@@ -805,9 +743,9 @@ sync_windows() {
   local requested_workspace="${1:-}"
   state_file_exists "$enabled_file" || return 0
   state_file_exists "$managed_file" || die "managed state is missing while Floating Mode is enabled"
-  configure_open_rules
   install_keybindings
   local snapshot monitors address workspace_ids="" transition_commands="" window_commands
+  local monitor_x monitor_y work_width work_height current_x current_y current_width current_height peer_count
   if ! all_workspaces_enabled; then
     if [[ -n "$requested_workspace" ]]; then
       [[ "$requested_workspace" =~ ^-?[0-9]+$ && ${#requested_workspace} -le 12 ]] || die "invalid requested workspace id"
@@ -823,27 +761,52 @@ sync_windows() {
   merge_managed_workspace_windows "$snapshot" "$workspace_ids"
   # Monitor geometry is optional: failure must not block the floating action.
   monitors="$(monitors || printf '[]')"
-  while IFS= read -r address; do
+  # Calculate all placements in one pass. Re-parsing both complete snapshots
+  # once per window made global mode switches quadratic.
+  while IFS=$'\t' read -r address monitor_x monitor_y work_width work_height current_x current_y current_width current_height peer_count; do
     [[ -n "$address" ]] || continue
     # A newly mapped window may briefly reject compositor commands. Never mark
     # it as handled until floating succeeded, and retry any managed window that
     # is still reported as tiled on the next service pass.
-    window_commands="$(transition_window_commands "$address" "$snapshot" "$monitors")"
+    window_commands="$(transition_window_commands "$address" "$monitor_x" "$monitor_y" "$work_width" "$work_height" "$current_x" "$current_y" "$current_width" "$current_height" "$peer_count")"
     [[ -n "$window_commands" ]] && transition_commands+="$window_commands"
-  done < <(jq -r --arg workspace_ids "$workspace_ids" '
-    .[]
-    | select(.mapped == true and .floating == false and .class != "org.omarchy.screensaver")
+  done < <(jq -r --arg workspace_ids "$workspace_ids" --argjson monitors "$monitors" '
+    . as $clients
+    | .[]
+    | select(.mapped == true and .floating == false and .class != "org.omarchy.screensaver" and .workspace.id > 0)
     | .workspace.id as $workspace_id
     | select($workspace_ids == "" or (("," + $workspace_ids + ",") | contains("," + ($workspace_id | tostring) + ",")))
-    | .address
+    | . as $window
+    | ($monitors[] | select(.id == $window.monitor)) as $monitor
+    | ($monitor.reserved // [0, 0, 0, 0]) as $reserved
+    | ($monitor.scale // 1) as $scale
+    | (if (($monitor.transform // 0) % 2) == 1 then $monitor.height else $monitor.width end) as $physical_width
+    | (if (($monitor.transform // 0) % 2) == 1 then $monitor.width else $monitor.height end) as $physical_height
+    | (($physical_width / $scale) | floor) as $logical_width
+    | (($physical_height / $scale) | floor) as $logical_height
+    | [$window.address,
+       ($monitor.x + $reserved[0]), ($monitor.y + $reserved[1]),
+       ($logical_width - $reserved[0] - $reserved[2]), ($logical_height - $reserved[1] - $reserved[3]),
+       $window.at[0], $window.at[1], $window.size[0], $window.size[1],
+       ([$clients[] | select(.mapped == true and .floating == false and .workspace.id == $workspace_id)] | length)]
+    | @tsv
   ' <<<"$snapshot")
   [[ -z "$transition_commands" ]] || hyprctl --batch "$transition_commands" >/dev/null
-  wait_for_managed_windows true "$workspace_ids" || die "Hyprland did not finish floating managed windows"
+  # Make the visible switch complete immediately after the geometry batch.
+  # Ledger and preference maintenance below must not delay titlebar rendering.
+  set_titlebars true
+  # hyprctl --batch returns after Hyprland accepted the complete transaction.
+  # Do not poll all clients here; the periodic sync already repairs the rare
+  # client that changes its mapping state after the transaction.
   snapshot="$(clients)"
-  apply_window_preferences "$snapshot" "$workspace_ids"
+  # Transparent mode is already Hyprland's normal profile, restored whenever
+  # Floating Mode is disabled. Only opaque mode needs per-window overrides on
+  # enable; preference toggles still use refresh_window_preferences directly.
+  if ! all_workspaces_enabled || ! transparency_enabled; then
+    apply_window_preferences "$snapshot" "$workspace_ids"
+  fi
   # Reassert dynamic rules after legacy override cleanup for existing windows.
   configure_open_rules
-  apply_titlebar_transparency_preference
 }
 
 enable_mode() {
@@ -869,32 +832,29 @@ enable_mode() {
   set_opaque_rule false
   hyprctl eval 'hl.config({ general = { resize_on_border = true } })' >/dev/null
   if all_workspaces_enabled; then sync_windows; else sync_windows "$workspace_id"; fi
-  # Enable decorations only after all windows have reached their final
-  # floating geometry, avoiding a tiled titlebar re-layout beforehand.
-  set_titlebars true
   apply_focus_border_preference
 }
 
 disable_all_modes() {
+  # Stop periodic syncs before changing any window. Leaving this marker until
+  # after the transition allowed a queued sync to race the tiling batch and
+  # made the old polling loop block for several seconds.
+  if state_file_exists "$enabled_file"; then rm -f -- "$enabled_file"; fi
   # Dynamic opacity rules must be off before resetting per-window overrides;
   # otherwise their final reevaluation can leave tiled windows fully opaque.
   hyprctl eval '
-    omarchy_floating_mode_open_rule:set_enabled(false)
-    omarchy_floating_mode_browser_rule:set_enabled(false)
-    omarchy_floating_mode_set_global_focus_border(true, "rgba(000000ff)")
+    omarchy_floating_mode_set_global_enabled(false, true, "rgba(000000ff)")
     omarchy_floating_mode_opaque_rule:set_enabled(false)
     omarchy_floating_mode_disable_all_workspace_rules()
   ' >/dev/null
   if state_file_exists "$managed_file"; then
-    local snapshot address opacity_profile ledger_snapshot commands="" active_focus_value
-    active_focus_value="$(configured_border_color general:col.active_border)"
+    local snapshot address opacity_profile ledger_snapshot commands=""
     ledger_snapshot="$(mktemp -p "$state_dir" '.managed-read.XXXXXX')" || die "cannot create managed-window ledger snapshot"
     register_temporary_file "$ledger_snapshot"
     snapshot_managed_ledger "$ledger_snapshot"
     snapshot="$(clients)"
     while IFS=$'\t' read -r address opacity_profile; do
       [[ -n "$address" ]] || continue
-      commands+="dispatch hl.dsp.window.set_prop({ prop = \"active_border_color\", value = \"$active_focus_value\", window = \"address:$address\" });"
       commands+="$(window_transparency_commands "$address" true "$opacity_profile")"
       commands+="$(tile_window_commands "$address")"
     done < <(jq -r --rawfile managed "$ledger_snapshot" '
@@ -908,10 +868,8 @@ disable_all_modes() {
     ' <<<"$snapshot")
     [[ -z "$commands" ]] || hyprctl --batch "$commands" >/dev/null
     rm -f -- "$ledger_snapshot"
-    wait_for_managed_windows false || die "Hyprland did not finish tiling managed windows"
   fi
   disable_runtime_integrations
-  if state_file_exists "$enabled_file"; then rm -f -- "$enabled_file"; fi
   if state_file_exists "$managed_file"; then rm -f -- "$managed_file"; fi
   if state_file_exists "$workspace_file"; then rm -f -- "$workspace_file"; fi
   rmdir "$state_dir" 2>/dev/null || true
@@ -948,18 +906,16 @@ remove_managed_workspace() {
 }
 
 disable_current_workspace() {
-  local workspace_id marker snapshot address opacity_profile commands="" active_focus_value
+  local workspace_id marker snapshot address opacity_profile commands=""
   workspace_id="$(active_workspace_id)"
   marker="$(workspace_marker "$workspace_id")"
   state_file_exists "$marker" || return 0
   # Stop this workspace's dynamic opacity rule before restoring the neutral
   # multipliers and override flags used by the normal tiled configuration.
   hyprctl eval "omarchy_floating_mode_disable_workspace_rules($workspace_id)" >/dev/null
-  active_focus_value="$(configured_border_color general:col.active_border)"
   snapshot="$(clients)"
   while IFS=$'\t' read -r address opacity_profile; do
     [[ -n "$address" ]] || continue
-    commands+="dispatch hl.dsp.window.set_prop({ prop = \"active_border_color\", value = \"$active_focus_value\", window = \"address:$address\" });"
     commands+="$(window_transparency_commands "$address" true "$opacity_profile")"
     commands+="$(tile_window_commands "$address")"
   done < <(jq -r --argjson workspace_id "$workspace_id" --rawfile managed "$managed_file" '
@@ -973,7 +929,6 @@ disable_current_workspace() {
     | [.address, $profile] | @tsv
   ' <<<"$snapshot")
   [[ -z "$commands" ]] || hyprctl --batch "$commands" >/dev/null
-  wait_for_managed_windows false "$workspace_id" || die "Hyprland did not finish tiling workspace windows"
   remove_managed_workspace "$workspace_id" "$snapshot"
   rm -f -- "$marker"
   if [[ -z "$(enabled_workspace_csv)" ]]; then
@@ -1024,7 +979,6 @@ case "${1:-}" in
   status|running-status|focus-border-status|transparency-status|titlebar-transparency-status|mouse-resize-status|scope-status|snap-left-status|snap-right-status|snap-gaps-status|ui-status) ;;
   *)
     migrate_legacy_workspace_state
-    migrate_global_titlebar_transparency
     ;;
 esac
 case "${1:-}" in
@@ -1120,21 +1074,21 @@ case "${1:-}" in
     ;;
   titlebar-transparency-on)
     prepare_settings_dir
-    preference_file="$titlebar_transparency_disabled_file"
+    preference_file="$(workspace_setting_file "$titlebar_transparency_disabled_file")"
     validate_setting_file "$preference_file"
     rm -f -- "$preference_file"
     if state_file_exists "$enabled_file" && current_workspace_is_selected; then apply_titlebar_transparency_preference; fi
     ;;
   titlebar-transparency-off)
     prepare_settings_dir
-    preference_file="$titlebar_transparency_disabled_file"
+    preference_file="$(workspace_setting_file "$titlebar_transparency_disabled_file")"
     validate_setting_file "$preference_file"
     truncate_state_file "$preference_file"
     if state_file_exists "$enabled_file" && current_workspace_is_selected; then apply_titlebar_transparency_preference; fi
     ;;
   titlebar-transparency-status)
     prepare_settings_dir
-    if titlebar_transparency_enabled; then printf 'on\n'; else printf 'off\n'; fi
+    if ! current_workspace_is_selected || titlebar_transparency_enabled; then printf 'on\n'; else printf 'off\n'; fi
     ;;
   mouse-resize-on)
     prepare_settings_dir
