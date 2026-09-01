@@ -72,7 +72,9 @@ hl.config({
 omarchy_floating_mode_open_rule = hl.window_rule({
   name = "floating-mode-open-small",
   match = {
-    class = ".*",
+    -- Omarchy's screensaver has its own fullscreen rule. Excluding it keeps
+    -- Floating Mode from clearing fullscreen and shrinking it to 70%.
+    class = "negative:^org\\.omarchy\\.screensaver$",
     float = false,
   },
   tag = "+floating-mode-managed",
@@ -96,13 +98,120 @@ omarchy_floating_mode_browser_rule = hl.window_rule({
 })
 omarchy_floating_mode_browser_rule:set_enabled(false)
 
+-- Keep newly mapped windows from briefly inheriting the normal active border
+-- when the Floating Mode focus border preference is disabled. This dynamic
+-- rule is already active when the managed tag is attached during mapping.
+omarchy_floating_mode_no_focus_rule = nil
+
+function omarchy_floating_mode_set_global_focus_border(enabled, inactive_color)
+  if omarchy_floating_mode_no_focus_rule == nil then
+    omarchy_floating_mode_no_focus_rule = hl.window_rule({
+      name = "floating-mode-no-focus-border",
+      match = { tag = "floating-mode-managed" },
+      border_color = inactive_color,
+    })
+  end
+  omarchy_floating_mode_no_focus_rule:set_enabled(not enabled)
+end
+
+-- Current-workspace scope needs creation-time rules as well. A polling
+-- service cannot reliably catch the short interval in which a new window is
+-- mapped and tiled. These handles are created lazily for each enabled
+-- workspace and make new windows floating before their first frame.
+omarchy_floating_mode_workspace_rules = {}
+
+function omarchy_floating_mode_set_workspace_enabled(workspace_id, enabled, focus_border_enabled, transparency_enabled, inactive_color)
+  workspace_id = tonumber(workspace_id)
+  if workspace_id == nil or workspace_id ~= math.floor(workspace_id) then return end
+  local key = tostring(workspace_id)
+  local rules = omarchy_floating_mode_workspace_rules[key]
+  if rules == nil then
+    local label = key:gsub("%-", "minus")
+    rules = {
+      open = hl.window_rule({
+        name = "floating-mode-open-workspace-" .. label,
+        match = {
+          class = "negative:^org\\.omarchy\\.screensaver$",
+          workspace = key,
+          float = false,
+        },
+        tag = "+floating-mode-managed",
+        float = true,
+        fullscreen_state = "0 0",
+        size = { "monitor_w*0.7", "monitor_h*0.7" },
+        center = true,
+      }),
+      browser = hl.window_rule({
+        name = "floating-mode-browser-workspace-" .. label,
+        match = {
+          class = "((google-)?[cC]hrom(e|ium)|[bB]rave-browser|[mM]icrosoft-edge|Vivaldi-stable|helium)",
+          workspace = key,
+        },
+        tag = "-chromium-based-browser",
+      }),
+      no_focus = hl.window_rule({
+        name = "floating-mode-no-focus-border-workspace-" .. label,
+        match = {
+          tag = "floating-mode-managed",
+          workspace = key,
+        },
+        border_color = inactive_color,
+      }),
+      opaque = hl.window_rule({
+        name = "floating-mode-opaque-workspace-" .. label,
+        match = {
+          tag = "floating-mode-managed",
+          workspace = key,
+        },
+        opacity = "1.0 override 1.0 override",
+      }),
+    }
+    omarchy_floating_mode_workspace_rules[key] = rules
+  end
+  rules.open:set_enabled(enabled)
+  rules.browser:set_enabled(enabled)
+  rules.no_focus:set_enabled(enabled and not focus_border_enabled)
+  rules.opaque:set_enabled(enabled and not transparency_enabled)
+end
+
+function omarchy_floating_mode_disable_all_workspace_rules()
+  for _, rules in pairs(omarchy_floating_mode_workspace_rules) do
+    rules.open:set_enabled(false)
+    rules.browser:set_enabled(false)
+    rules.no_focus:set_enabled(false)
+    rules.opaque:set_enabled(false)
+  end
+end
+
+function omarchy_floating_mode_disable_workspace_rules(workspace_id)
+  workspace_id = tonumber(workspace_id)
+  if workspace_id == nil or workspace_id ~= math.floor(workspace_id) then return end
+  local rules = omarchy_floating_mode_workspace_rules[tostring(workspace_id)]
+  if rules == nil then return end
+  rules.open:set_enabled(false)
+  rules.browser:set_enabled(false)
+  rules.no_focus:set_enabled(false)
+  rules.opaque:set_enabled(false)
+end
+
 -- Optional fully opaque rendering for every window while Floating Mode is on.
 omarchy_floating_mode_opaque_rule = hl.window_rule({
   name = "floating-mode-opaque-windows",
-  match = { class = ".*" },
+  -- Limit the override to windows owned by Floating Mode. In per-workspace
+  -- scope, tiled windows on other workspaces keep their normal opacity.
+  match = { tag = "floating-mode-managed" },
   opacity = "1.0 override 1.0 override",
 })
 omarchy_floating_mode_opaque_rule:set_enabled(false)
+
+-- Hyprbars is loaded globally, but decorations belong only on floating
+-- windows. This is especially important in current-workspace scope: tiled
+-- windows on every other workspace must retain their normal Omarchy look.
+hl.window_rule({
+  name = "floating-mode-no-titlebar-on-tiled-windows",
+  match = { float = false },
+  ["hyprbars:no_bar"] = true,
+})
 
 -- Buttons are declared right-to-left: close, then maximize.
 hl.plugin.hyprbars.add_button({

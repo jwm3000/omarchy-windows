@@ -9,9 +9,12 @@ BarWidget {
   moduleName: "io.github.rawritude.floating-mode"
 
   property bool floatingMode: false
+  property bool modeRunning: false
   property bool focusBorderEnabled: true
   property bool transparencyEnabled: true
   property bool titlebarTransparencyEnabled: true
+  property bool mouseResizeEnabled: true
+  property bool allWorkspaces: true
   property string leftSnapMode: "quarter"
   property string rightSnapMode: "quarter"
   property bool snapGapsEnabled: true
@@ -19,6 +22,8 @@ BarWidget {
   property bool focusBorderBusy: false
   property bool transparencyBusy: false
   property bool titlebarTransparencyBusy: false
+  property bool mouseResizeBusy: false
+  property bool scopeBusy: false
   property bool snapBusy: false
   property bool settingsOpen: false
   property string lastError: ""
@@ -40,13 +45,7 @@ BarWidget {
   implicitHeight: button.implicitHeight
 
   function refresh() {
-    if (!statusProc.running) statusProc.running = true
-    if (!focusBorderStatusProc.running) focusBorderStatusProc.running = true
-    if (!transparencyStatusProc.running) transparencyStatusProc.running = true
-    if (!titlebarTransparencyStatusProc.running) titlebarTransparencyStatusProc.running = true
-    if (!leftSnapStatusProc.running) leftSnapStatusProc.running = true
-    if (!rightSnapStatusProc.running) rightSnapStatusProc.running = true
-    if (!snapGapsStatusProc.running) snapGapsStatusProc.running = true
+    if (!uiStatusProc.running) uiStatusProc.running = true
   }
 
   function localized(de, en) {
@@ -101,6 +100,25 @@ BarWidget {
     titlebarTransparencyActionProc.running = true
   }
 
+  function toggleMouseResize() {
+    if (mouseResizeActionProc.running || floatingMode) return
+    mouseResizeBusy = true
+    lastError = ""
+    mouseResizeActionProc.command = [
+      root.helper,
+      root.mouseResizeEnabled ? "mouse-resize-off" : "mouse-resize-on"
+    ]
+    mouseResizeActionProc.running = true
+  }
+
+  function toggleScope() {
+    if (scopeActionProc.running) return
+    scopeBusy = true
+    lastError = ""
+    scopeActionProc.command = [root.helper, root.allWorkspaces ? "scope-current" : "scope-all"]
+    scopeActionProc.running = true
+  }
+
   function setSnapMode(side, mode) {
     if (snapActionProc.running) return
     snapBusy = true
@@ -121,65 +139,27 @@ BarWidget {
   }
 
   Process {
-    id: statusProc
-    command: [root.helper, "status"]
+    id: uiStatusProc
+    command: [root.helper, "ui-status"]
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.floatingMode = String(text || "").trim() === "on"
-    }
-  }
-
-  Process {
-    id: focusBorderStatusProc
-    command: [root.helper, "focus-border-status"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.focusBorderEnabled = String(text || "").trim() === "on"
-    }
-  }
-
-  Process {
-    id: transparencyStatusProc
-    command: [root.helper, "transparency-status"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.transparencyEnabled = String(text || "").trim() === "on"
-    }
-  }
-
-  Process {
-    id: titlebarTransparencyStatusProc
-    command: [root.helper, "titlebar-transparency-status"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.titlebarTransparencyEnabled = String(text || "").trim() === "on"
-    }
-  }
-
-  Process {
-    id: leftSnapStatusProc
-    command: [root.helper, "snap-left-status"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.leftSnapMode = String(text || "").trim() === "half" ? "half" : "quarter"
-    }
-  }
-
-  Process {
-    id: rightSnapStatusProc
-    command: [root.helper, "snap-right-status"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.rightSnapMode = String(text || "").trim() === "half" ? "half" : "quarter"
-    }
-  }
-
-  Process {
-    id: snapGapsStatusProc
-    command: [root.helper, "snap-gaps-status"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.snapGapsEnabled = String(text || "").trim() === "on"
+      onStreamFinished: {
+        try {
+          var state = JSON.parse(String(text || "{}"))
+          root.floatingMode = state.floating === true
+          root.modeRunning = state.running === true
+          root.focusBorderEnabled = state.focus !== false
+          root.transparencyEnabled = state.transparency !== false
+          root.titlebarTransparencyEnabled = state.titlebar !== false
+          root.mouseResizeEnabled = state.mouseResize !== false
+          root.allWorkspaces = state.allWorkspaces !== false
+          root.leftSnapMode = state.leftSnap === "half" ? "half" : "quarter"
+          root.rightSnapMode = state.rightSnap === "half" ? "half" : "quarter"
+          root.snapGapsEnabled = state.snapGaps !== false
+        } catch (error) {
+          root.lastError = root.localized("Status konnte nicht gelesen werden", "Could not read status")
+        }
+      }
     }
   }
 
@@ -194,7 +174,7 @@ BarWidget {
       if (code !== 0 && root.lastError === "")
         root.lastError = root.localized("Fenstermodus konnte nicht geändert werden", "Could not change window mode")
       // Discard any poll that started before the action and force a new read.
-      if (statusProc.running) statusProc.running = false
+      if (uiStatusProc.running) uiStatusProc.running = false
       Qt.callLater(root.refresh)
     }
   }
@@ -209,7 +189,7 @@ BarWidget {
       root.focusBorderBusy = false
       if (code !== 0 && root.lastError === "")
         root.lastError = root.localized("Fokusrahmen konnte nicht geändert werden", "Could not change focus border")
-      if (focusBorderStatusProc.running) focusBorderStatusProc.running = false
+      if (uiStatusProc.running) uiStatusProc.running = false
       Qt.callLater(root.refresh)
     }
   }
@@ -224,7 +204,7 @@ BarWidget {
       root.transparencyBusy = false
       if (code !== 0 && root.lastError === "")
         root.lastError = root.localized("Transparenz konnte nicht geändert werden", "Could not change transparency")
-      if (transparencyStatusProc.running) transparencyStatusProc.running = false
+      if (uiStatusProc.running) uiStatusProc.running = false
       Qt.callLater(root.refresh)
     }
   }
@@ -239,7 +219,7 @@ BarWidget {
       root.titlebarTransparencyBusy = false
       if (code !== 0 && root.lastError === "")
         root.lastError = root.localized("Titelleisten-Transparenz konnte nicht geändert werden", "Could not change titlebar transparency")
-      if (titlebarTransparencyStatusProc.running) titlebarTransparencyStatusProc.running = false
+      if (uiStatusProc.running) uiStatusProc.running = false
       Qt.callLater(root.refresh)
     }
   }
@@ -254,9 +234,38 @@ BarWidget {
       root.snapBusy = false
       if (code !== 0 && root.lastError === "")
         root.lastError = root.localized("Snap-Einstellung konnte nicht geändert werden", "Could not change snap setting")
-      if (leftSnapStatusProc.running) leftSnapStatusProc.running = false
-      if (rightSnapStatusProc.running) rightSnapStatusProc.running = false
-      if (snapGapsStatusProc.running) snapGapsStatusProc.running = false
+      if (uiStatusProc.running) uiStatusProc.running = false
+      Qt.callLater(root.refresh)
+    }
+  }
+
+
+  Process {
+    id: mouseResizeActionProc
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.lastError = String(text || "").trim()
+    }
+    onExited: function(code) {
+      root.mouseResizeBusy = false
+      if (code !== 0 && root.lastError === "")
+        root.lastError = root.localized("Ändern der Fenstergröße konnte nicht umgeschaltet werden", "Could not toggle mouse window resizing")
+      if (uiStatusProc.running) uiStatusProc.running = false
+      Qt.callLater(root.refresh)
+    }
+  }
+
+  Process {
+    id: scopeActionProc
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.lastError = String(text || "").trim()
+    }
+    onExited: function(code) {
+      root.scopeBusy = false
+      if (code !== 0 && root.lastError === "")
+        root.lastError = root.localized("Geltungsbereich konnte nicht geändert werden", "Could not change mode scope")
+      if (uiStatusProc.running) uiStatusProc.running = false
       Qt.callLater(root.refresh)
     }
   }
@@ -312,6 +321,21 @@ BarWidget {
 
       Toggle {
         width: parent.width
+        label: root.localized("Alle Arbeitsflächen", "All workspaces")
+        description: root.allWorkspaces
+          ? root.localized("Umschalten gilt für alle Arbeitsflächen", "Switching applies to all workspaces")
+          : root.localized("Umschalten gilt nur für die aktuelle Arbeitsfläche", "Switching applies only to the current workspace")
+        checked: root.allWorkspaces
+        foreground: root.bar.foreground
+        accent: Color.accent
+        fontFamily: root.bar.fontFamily
+        enabled: !root.scopeBusy
+        opacity: enabled ? 1.0 : 0.55
+        onClicked: root.toggleScope()
+      }
+
+      Toggle {
+        width: parent.width
         label: root.localized("Fokusrahmen", "Focus border")
         description: root.focusBorderEnabled
           ? root.localized("Aktives Fenster behält seine Fokusfarbe", "Active window keeps its focus color")
@@ -320,7 +344,7 @@ BarWidget {
         foreground: root.bar.foreground
         accent: Color.accent
         fontFamily: root.bar.fontFamily
-        enabled: !root.focusBorderBusy
+        enabled: root.floatingMode && !root.focusBorderBusy
         opacity: enabled ? 1.0 : 0.55
         onClicked: root.toggleFocusBorder()
       }
@@ -335,7 +359,7 @@ BarWidget {
         foreground: root.bar.foreground
         accent: Color.accent
         fontFamily: root.bar.fontFamily
-        enabled: !root.transparencyBusy
+        enabled: root.floatingMode && !root.transparencyBusy
         opacity: enabled ? 1.0 : 0.55
         onClicked: root.toggleTransparency()
       }
@@ -350,9 +374,26 @@ BarWidget {
         foreground: root.bar.foreground
         accent: Color.accent
         fontFamily: root.bar.fontFamily
-        enabled: !root.titlebarTransparencyBusy
+        enabled: root.floatingMode && !root.titlebarTransparencyBusy
         opacity: enabled ? 1.0 : 0.55
         onClicked: root.toggleTitlebarTransparency()
+      }
+
+      Toggle {
+        width: parent.width
+        label: root.localized("Fenstergröße mit Maus ändern", "Resize windows with mouse")
+        description: root.floatingMode
+          ? root.localized("Im Floating Mode immer aktiv", "Always active in Floating Mode")
+          : (root.mouseResizeEnabled
+              ? root.localized("Am Fensterrand ziehen, um die Größe zu ändern", "Drag a window border to resize")
+              : root.localized("Ändern am Fensterrand ist ausgeschaltet", "Border resizing is disabled"))
+        checked: root.floatingMode || root.mouseResizeEnabled
+        foreground: root.bar.foreground
+        accent: Color.accent
+        fontFamily: root.bar.fontFamily
+        enabled: !root.floatingMode && !root.mouseResizeBusy
+        opacity: enabled ? 1.0 : 0.55
+        onClicked: root.toggleMouseResize()
       }
 
       PanelSeparator {

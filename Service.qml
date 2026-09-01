@@ -19,7 +19,9 @@ Item {
   }
 
   Timer {
-    interval: 1000
+    // Creation-time Hyprland rules handle normal window opens immediately.
+    // This slower pass is only a repair loop for unusual mapping races.
+    interval: 3000
     running: true
     repeat: true
     triggeredOnStart: true

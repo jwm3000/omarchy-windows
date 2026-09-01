@@ -6,6 +6,7 @@ runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$current_uid}"
 state_dir="$runtime_dir/omarchy-floating-mode"
 enabled_file="$state_dir/enabled"
 managed_file="$state_dir/managed"
+workspace_file="$state_dir/workspace"
 lock_file="$state_dir/operation.lock"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 state_helper="$script_dir/floating-mode-state"
@@ -17,6 +18,8 @@ right_snap_half_file="$settings_dir/right-snap-half"
 snap_gaps_disabled_file="$settings_dir/snap-gaps-disabled"
 transparency_disabled_file="$settings_dir/transparency-disabled"
 titlebar_transparency_disabled_file="$settings_dir/titlebar-transparency-disabled"
+mouse_resize_disabled_file="$settings_dir/mouse-resize-disabled"
+current_workspace_only_file="$settings_dir/current-workspace-only"
 keybindings_marker="$state_dir/keybindings"
 managed_max_bytes=8192
 managed_max_entries=256
@@ -55,7 +58,7 @@ prepare_state_dir() {
     validate_private_dir "$state_dir" "state directory"
   fi
   chmod 700 -- "$state_dir"
-  for state_path in "$enabled_file" "$managed_file" "$lock_file" "$keybindings_marker"; do
+  for state_path in "$enabled_file" "$managed_file" "$workspace_file" "$lock_file" "$keybindings_marker"; do
     if [[ -e "$state_path" || -L "$state_path" ]]; then
       "$state_helper" check "$state_path"
     fi
@@ -64,7 +67,20 @@ prepare_state_dir() {
 
 acquire_operation_lock() {
   [[ ${FLOATING_MODE_LOCK_HELD:-} == 1 ]] && return
-  exec "$state_helper" lock-exec "$lock_file" "$0" "$@"
+  case "${1:-}" in
+    status|running-status|focus-border-status|transparency-status|titlebar-transparency-status|mouse-resize-status|scope-status|snap-left-status|snap-right-status|snap-gaps-status|ui-status)
+      return 0
+      ;;
+  esac
+  if [[ "${1:-}" == sync ]]; then
+    exec "$state_helper" try-lock-exec "$lock_file" "$0" "$@"
+  else
+    if [[ -z "${FLOATING_MODE_TARGET_WORKSPACE:-}" ]]; then
+      FLOATING_MODE_TARGET_WORKSPACE="$(active_workspace_id)"
+      export FLOATING_MODE_TARGET_WORKSPACE
+    fi
+    exec "$state_helper" lock-exec "$lock_file" "$0" "$@"
+  fi
 }
 
 state_file_exists() {
@@ -112,6 +128,29 @@ prune_managed_ledger() {
   mv -f -- "$replacement" "$managed_file"
 }
 
+merge_managed_workspace_windows() {
+  local clients_snapshot="$1" workspace_ids="$2" ledger_snapshot replacement
+  ledger_snapshot="$(mktemp -p "$state_dir" '.managed-read.XXXXXX')" || die "cannot create managed-window ledger snapshot"
+  register_temporary_file "$ledger_snapshot"
+  snapshot_managed_ledger "$ledger_snapshot"
+  replacement="$(mktemp -p "$state_dir" '.managed.XXXXXX')" || die "cannot create managed-window ledger"
+  register_temporary_file "$replacement"
+  chmod 600 -- "$replacement"
+  jq -r --arg workspace_ids "$workspace_ids" --rawfile managed "$ledger_snapshot" '
+    ($managed | split("\n") | map(select(length > 0))) as $existing
+    | (($existing + [
+        .[]
+        | select(.mapped == true and .class != "org.omarchy.screensaver")
+        | .workspace.id as $workspace_id
+        | select($workspace_ids == "" or (("," + $workspace_ids + ",") | contains("," + ($workspace_id | tostring) + ",")))
+        | .address
+      ]) | unique)[]
+  ' <<<"$clients_snapshot" >"$replacement" || die "cannot update managed-window ledger"
+  (( $(wc -l <"$replacement") <= managed_max_entries )) || die "managed-window ledger entry limit reached"
+  rm -f -- "$ledger_snapshot"
+  mv -f -- "$replacement" "$managed_file"
+}
+
 append_managed_address() {
   local address="$1" ledger_snapshot replacement
   valid_address "$address" || return 1
@@ -144,17 +183,17 @@ valid_address() {
   [[ "$1" =~ ^0x[0-9a-fA-F]+$ ]]
 }
 
-tile_window() {
+tile_window_commands() {
   local address="$1"
   valid_address "$address" || return 0
-  hyprctl --batch \
+  printf '%s' \
     "dispatch hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"1\", window = \"address:$address\" });"\
 "dispatch hl.dsp.window.fullscreen_state({ internal = 0, client = 0, action = \"set\", window = \"address:$address\" });"\
 "dispatch hl.dsp.window.float({ action = \"off\", window = \"address:$address\" });"\
-"dispatch hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"unset\", window = \"address:$address\" })" >/dev/null
+"dispatch hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"unset\", window = \"address:$address\" });"
 }
 
-transition_window() {
+transition_window_commands() {
   local address="$1" snapshot="$2" monitors="$3"
   valid_address "$address" || return 0
 
@@ -216,15 +255,13 @@ transition_window() {
     target_y=$((monitor_y + (work_height - target_height) / 2))
   fi
 
-  # Submit the entire transition through one IPC request. This prevents
-  # Hyprland from presenting tiled, floated and resized intermediate frames.
-  hyprctl --batch \
+  printf '%s' \
     "dispatch hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"1\", window = \"address:$address\" });"\
 "dispatch hl.dsp.window.fullscreen_state({ internal = 0, client = 0, action = \"set\", window = \"address:$address\" });"\
 "dispatch hl.dsp.window.float({ action = \"on\", window = \"address:$address\" });"\
 "dispatch hl.dsp.window.resize({ x = $target_width, y = $target_height, window = \"address:$address\" });"\
 "dispatch hl.dsp.window.move({ x = $target_x, y = $target_y, window = \"address:$address\" });"\
-"dispatch hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"unset\", window = \"address:$address\" })" >/dev/null
+"dispatch hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"unset\", window = \"address:$address\" });"
 }
 
 hyprbars_loaded() {
@@ -242,6 +279,35 @@ set_open_rule() {
   hyprctl eval \
     "omarchy_floating_mode_open_rule:set_enabled($value);"\
 "omarchy_floating_mode_browser_rule:set_enabled($value)" >/dev/null
+}
+
+configure_open_rules() {
+  local workspace_id code inactive_color focus_enabled transparency_value
+  inactive_color="$(configured_border_color general:col.inactive_border)"
+  if all_workspaces_enabled; then
+    focus_enabled=false
+    focus_border_enabled && focus_enabled=true
+    transparency_value=false
+    transparency_enabled && transparency_value=true
+    hyprctl eval "
+      omarchy_floating_mode_disable_all_workspace_rules()
+      omarchy_floating_mode_open_rule:set_enabled(true)
+      omarchy_floating_mode_browser_rule:set_enabled(true)
+      omarchy_floating_mode_set_global_focus_border($focus_enabled, \"$inactive_color\")
+      omarchy_floating_mode_opaque_rule:set_enabled(not $transparency_value)
+    " >/dev/null
+    return
+  fi
+  code='omarchy_floating_mode_open_rule:set_enabled(false); omarchy_floating_mode_browser_rule:set_enabled(false); omarchy_floating_mode_set_global_focus_border(true, "'$inactive_color'"); omarchy_floating_mode_opaque_rule:set_enabled(false); omarchy_floating_mode_disable_all_workspace_rules();'
+  while IFS= read -r workspace_id; do
+    [[ -n "$workspace_id" ]] || continue
+    focus_enabled=false
+    focus_border_enabled "$workspace_id" && focus_enabled=true
+    transparency_value=false
+    transparency_enabled "$workspace_id" && transparency_value=true
+    code+="omarchy_floating_mode_set_workspace_enabled($workspace_id, true, $focus_enabled, $transparency_value, \"$inactive_color\");"
+  done < <(enabled_workspace_ids)
+  hyprctl eval "$code" >/dev/null
 }
 
 set_opaque_rule() {
@@ -295,11 +361,190 @@ prepare_settings_dir() {
     validate_private_dir "$settings_dir" "settings directory"
   fi
   chmod 700 -- "$settings_dir"
-  for settings_file in "$focus_border_disabled_file" "$left_snap_half_file" "$right_snap_half_file" "$snap_gaps_disabled_file" "$transparency_disabled_file" "$titlebar_transparency_disabled_file"; do
+  for settings_file in "$focus_border_disabled_file" "$left_snap_half_file" "$right_snap_half_file" "$snap_gaps_disabled_file" "$transparency_disabled_file" "$titlebar_transparency_disabled_file" "$mouse_resize_disabled_file" "$current_workspace_only_file"; do
     if [[ -e "$settings_file" || -L "$settings_file" ]]; then
       "$state_helper" check "$settings_file"
     fi
   done
+}
+
+all_workspaces_enabled() {
+  [[ ! -e "$current_workspace_only_file" && ! -L "$current_workspace_only_file" ]]
+}
+
+workspace_setting_file() {
+  local base="$1" workspace_id="${2:-}"
+  if all_workspaces_enabled; then
+    printf '%s\n' "$base"
+    return
+  fi
+  [[ -n "$workspace_id" ]] || workspace_id="$(active_workspace_id)"
+  [[ "$workspace_id" =~ ^-?[0-9]+$ && ${#workspace_id} -le 12 ]] || die "invalid workspace id"
+  printf '%s.workspace.%s\n' "$base" "$workspace_id"
+}
+
+validate_setting_file() {
+  local path="$1"
+  if [[ -e "$path" || -L "$path" ]]; then
+    "$state_helper" check "$path"
+  fi
+}
+
+runtime_workspace_id() {
+  active_workspace_id
+}
+
+active_workspace_id() {
+  if [[ -n "${FLOATING_MODE_TARGET_WORKSPACE:-}" ]]; then
+    [[ "$FLOATING_MODE_TARGET_WORKSPACE" =~ ^-?[0-9]+$ && ${#FLOATING_MODE_TARGET_WORKSPACE} -le 12 ]] \
+      || die "invalid captured workspace id"
+    printf '%s\n' "$FLOATING_MODE_TARGET_WORKSPACE"
+    return
+  fi
+  hyprctl activeworkspace -j | jq -er '.id | select(type == "number") | tostring'
+}
+
+selected_workspace_id() {
+  local snapshot value
+  state_file_exists "$workspace_file" || return 1
+  snapshot="$(mktemp -p "$state_dir" '.workspace-read.XXXXXX')" || die "cannot create workspace snapshot"
+  register_temporary_file "$snapshot"
+  "$state_helper" snapshot "$workspace_file" "$snapshot" 32 || die "cannot snapshot workspace state"
+  value="$(tr -d '\n' <"$snapshot")"
+  rm -f -- "$snapshot"
+  [[ "$value" =~ ^-?[0-9]+$ && ${#value} -le 12 ]] || die "invalid workspace state"
+  printf '%s\n' "$value"
+}
+
+current_workspace_is_selected() {
+  workspace_is_enabled "$(active_workspace_id)"
+}
+
+workspace_marker() {
+  local workspace_id="$1"
+  [[ "$workspace_id" =~ ^-?[0-9]+$ && ${#workspace_id} -le 12 ]] || die "invalid workspace id"
+  printf '%s/workspace.%s\n' "$state_dir" "$workspace_id"
+}
+
+workspace_is_enabled() {
+  local workspace_id="$1" marker
+  state_file_exists "$enabled_file" || return 1
+  all_workspaces_enabled && return 0
+  marker="$(workspace_marker "$workspace_id")"
+  state_file_exists "$marker"
+}
+
+enabled_workspace_ids() {
+  local marker workspace_id
+  all_workspaces_enabled && return 0
+  shopt -s nullglob
+  for marker in "$state_dir"/workspace.*; do
+    validate_setting_file "$marker"
+    workspace_id="${marker##*.}"
+    [[ "$workspace_id" =~ ^-?[0-9]+$ && ${#workspace_id} -le 12 ]] || die "invalid workspace marker"
+    printf '%s\n' "$workspace_id"
+  done
+  shopt -u nullglob
+}
+
+enabled_workspace_csv() {
+  enabled_workspace_ids | paste -sd, -
+}
+
+migrate_legacy_workspace_state() {
+  local workspace_id marker
+  state_file_exists "$workspace_file" || return 0
+  if all_workspaces_enabled; then
+    rm -f -- "$workspace_file"
+    return
+  fi
+  workspace_id="$(selected_workspace_id)"
+  marker="$(workspace_marker "$workspace_id")"
+  state_file_exists "$marker" || truncate_state_file "$marker"
+  rm -f -- "$workspace_file"
+}
+
+copy_workspace_preferences_to_global() {
+  local workspace_id="$1" base source
+  for base in "$focus_border_disabled_file" "$transparency_disabled_file"; do
+    source="$base.workspace.$workspace_id"
+    validate_setting_file "$source"
+    validate_setting_file "$base"
+    if [[ -e "$source" ]]; then truncate_state_file "$base"; else rm -f -- "$base"; fi
+  done
+}
+
+copy_global_preferences_to_workspace() {
+  local workspace_id="$1" base target
+  for base in "$focus_border_disabled_file" "$transparency_disabled_file"; do
+    target="$base.workspace.$workspace_id"
+    validate_setting_file "$base"
+    validate_setting_file "$target"
+    if [[ -e "$base" ]]; then truncate_state_file "$target"; else rm -f -- "$target"; fi
+  done
+}
+
+migrate_global_titlebar_transparency() {
+  local current_marker marker workspace_id workspace_markers
+  shopt -s nullglob
+  workspace_markers=("$titlebar_transparency_disabled_file".workspace.*)
+  shopt -u nullglob
+  ((${#workspace_markers[@]} > 0)) || return 0
+  if ! all_workspaces_enabled; then
+    workspace_id="$(active_workspace_id)"
+    current_marker="$titlebar_transparency_disabled_file.workspace.$workspace_id"
+    validate_setting_file "$current_marker"
+    if [[ -e "$current_marker" ]]; then
+      truncate_state_file "$titlebar_transparency_disabled_file"
+    else
+      rm -f -- "$titlebar_transparency_disabled_file"
+    fi
+  fi
+  for marker in "${workspace_markers[@]}"; do
+    validate_setting_file "$marker"
+    rm -f -- "$marker"
+  done
+}
+
+clear_workspace_mode_markers() {
+  local marker
+  shopt -s nullglob
+  for marker in "$state_dir"/workspace.*; do
+    validate_setting_file "$marker"
+    rm -f -- "$marker"
+  done
+  shopt -u nullglob
+}
+
+mouse_resize_enabled() {
+  [[ ! -e "$mouse_resize_disabled_file" && ! -L "$mouse_resize_disabled_file" ]]
+}
+
+apply_mouse_resize_preference() {
+  local value=false
+  mouse_resize_enabled && value=true
+  hyprctl eval "hl.config({ general = { resize_on_border = $value } })" >/dev/null
+}
+
+disable_runtime_integrations() {
+  local resize_value=false
+  mouse_resize_enabled && resize_value=true
+  hyprctl eval "
+    omarchy_floating_mode_open_rule:set_enabled(false)
+    omarchy_floating_mode_browser_rule:set_enabled(false)
+    omarchy_floating_mode_set_global_focus_border(true, \"rgba(000000ff)\")
+    omarchy_floating_mode_disable_all_workspace_rules()
+    omarchy_floating_mode_opaque_rule:set_enabled(false)
+    hl.unbind(\"SUPER + CTRL + LEFT\")
+    hl.unbind(\"SUPER + CTRL + RIGHT\")
+    hl.unbind(\"SUPER + CTRL + UP\")
+    hl.unbind(\"SUPER + CTRL + DOWN\")
+    hl.config({
+      general = { resize_on_border = $resize_value },
+      plugin = { hyprbars = { enabled = false } },
+    })
+  " >/dev/null
+  rm -f -- "$keybindings_marker"
 }
 
 set_snap_mode() {
@@ -323,73 +568,163 @@ snap_gaps_enabled() {
 }
 
 transparency_enabled() {
-  [[ ! -e "$transparency_disabled_file" && ! -L "$transparency_disabled_file" ]]
+  local marker
+  marker="$(workspace_setting_file "$transparency_disabled_file" "${1:-}")"
+  validate_setting_file "$marker"
+  [[ ! -e "$marker" && ! -L "$marker" ]]
 }
 
 apply_transparency_preference() {
-  if transparency_enabled; then set_opaque_rule false; else set_opaque_rule true; fi
+  set_opaque_rule false
 }
 
 titlebar_transparency_enabled() {
+  validate_setting_file "$titlebar_transparency_disabled_file"
   [[ ! -e "$titlebar_transparency_disabled_file" && ! -L "$titlebar_transparency_disabled_file" ]]
 }
 
 apply_titlebar_transparency_preference() {
-  local color="rgba(333333ff)"
-  titlebar_transparency_enabled && color="rgba(333333c0)"
+  local color="rgba(333333ff)" workspace_id
+  workspace_id="$(runtime_workspace_id)"
+  if ! workspace_is_enabled "$workspace_id" || titlebar_transparency_enabled; then
+    color="rgba(333333c0)"
+  fi
   hyprbars_loaded || return 0
   hyprctl eval "hl.config({ plugin = { hyprbars = { bar_color = \"$color\" } } })" >/dev/null
 }
 
 focus_border_enabled() {
-  [[ ! -e "$focus_border_disabled_file" && ! -L "$focus_border_disabled_file" ]]
+  local marker
+  marker="$(workspace_setting_file "$focus_border_disabled_file" "${1:-}")"
+  validate_setting_file "$marker"
+  [[ ! -e "$marker" && ! -L "$marker" ]]
 }
 
-use_inactive_focus_border() {
-  local gradient angle token argb rgba lua_colors="" separator=""
-  local -a parts colors
-  gradient="$(hyprctl getoption general:col.inactive_border -j \
+configured_border_color() {
+  local option="$1" gradient token argb
+  gradient="$(hyprctl getoption "$option" -j \
     | jq -er '.gradient | select(type == "string" and length <= 256)')" \
-    || die "cannot read inactive border color"
-  read -r -a parts <<<"$gradient"
-  ((${#parts[@]} >= 2 && ${#parts[@]} <= 9)) || die "invalid inactive border color"
-  angle="${parts[-1]%deg}"
-  [[ "${parts[-1]}" =~ ^[0-9]+deg$ && "$angle" =~ ^[0-9]+$ && "$angle" -le 360 ]] \
-    || die "invalid inactive border angle"
-  unset 'parts[-1]'
-
-  for token in "${parts[@]}"; do
-    [[ "$token" =~ ^[0-9a-fA-F]{8}$ ]] || die "invalid inactive border color"
-    # `hyprctl getoption` reports AARRGGBB; Lua's rgba() accepts RRGGBBAA.
-    argb="${token,,}"
-    rgba="${argb:2:6}${argb:0:2}"
-    colors+=("$rgba")
-  done
-
-  if ((${#colors[@]} == 1)); then
-    hyprctl eval "hl.config({ general = { [\"col.active_border\"] = \"rgba(${colors[0]})\" } })" >/dev/null
-    return
-  fi
-
-  for rgba in "${colors[@]}"; do
-    lua_colors+="${separator}\"rgba($rgba)\""
-    separator=", "
-  done
-  hyprctl eval "hl.config({ general = { [\"col.active_border\"] = { colors = { $lua_colors }, angle = $angle } } })" >/dev/null
-}
-
-restore_configured_focus_border() {
-  hyprctl reload >/dev/null
-  if state_file_exists "$enabled_file"; then
-    rm -f -- "$keybindings_marker"
-    set_titlebars true
-    apply_titlebar_transparency_preference
-    install_keybindings
-  fi
+    || die "cannot read configured border color"
+  token="${gradient%% *}"
+  [[ "$token" =~ ^[0-9a-fA-F]{8}$ ]] || die "invalid inactive border color"
+  argb="${token,,}"
+  printf 'rgba(%s%s)\n' "${argb:2:6}" "${argb:0:2}"
 }
 
 apply_focus_border_preference() {
-  focus_border_enabled || use_inactive_focus_border
+  return 0
+}
+
+window_transparency_commands() {
+  local address="$1" enabled="$2" profile="${3:-default}" opacity_value="1.0" inactive_value="1.0" override_value="1"
+  valid_address "$address" || return 0
+  if [[ "$enabled" == true ]]; then
+    # Numeric props cannot be unset reliably after Floating Mode set them.
+    # Restore the exact stock Omarchy profile selected by the window's tags.
+    override_value="0"
+    case "$profile" in
+      default) opacity_value="0.985"; inactive_value="0.96" ;;
+      browser) opacity_value="1.0"; inactive_value="0.985" ;;
+      opaque) opacity_value="1.0"; inactive_value="1.0" ;;
+      *) return 0 ;;
+    esac
+  else
+    inactive_value="$opacity_value"
+  fi
+  printf '%s' \
+    "dispatch hl.dsp.window.set_prop({ prop = \"opacity\", value = \"$opacity_value\", window = \"address:$address\" });"\
+"dispatch hl.dsp.window.set_prop({ prop = \"opacity_inactive\", value = \"$inactive_value\", window = \"address:$address\" });"\
+"dispatch hl.dsp.window.set_prop({ prop = \"opacity_fullscreen\", value = \"$opacity_value\", window = \"address:$address\" });"\
+"dispatch hl.dsp.window.set_prop({ prop = \"opacity_override\", value = \"$override_value\", window = \"address:$address\" });"\
+"dispatch hl.dsp.window.set_prop({ prop = \"opacity_inactive_override\", value = \"$override_value\", window = \"address:$address\" });"\
+"dispatch hl.dsp.window.set_prop({ prop = \"opacity_fullscreen_override\", value = \"$override_value\", window = \"address:$address\" });"
+}
+
+apply_window_preferences() {
+  local snapshot="$1" workspace_ids="$2" preference="${3:-all}" address workspace_id active_focus_value="" inactive_focus_value="" commands=""
+  if [[ "$preference" != transparency ]]; then
+    active_focus_value="$(configured_border_color general:col.active_border)"
+    inactive_focus_value="$(configured_border_color general:col.inactive_border)"
+  fi
+  while IFS=$'\t' read -r address workspace_id opacity_profile; do
+    [[ -n "$address" ]] || continue
+    if [[ "$preference" != focus ]]; then
+      # Creation-time rules cover new windows. Existing mapped windows need a
+      # direct update because enabling a named opacity rule is not reliably
+      # reevaluated until another matching property changes.
+      if transparency_enabled "$workspace_id"; then
+        commands+="$(window_transparency_commands "$address" true "$opacity_profile")"
+      else
+        commands+="$(window_transparency_commands "$address" false)"
+      fi
+    fi
+    if [[ "$preference" != transparency ]]; then
+      if focus_border_enabled "$workspace_id"; then
+        commands+="dispatch hl.dsp.window.set_prop({ prop = \"active_border_color\", value = \"$active_focus_value\", window = \"address:$address\" });"
+      else
+        commands+="dispatch hl.dsp.window.set_prop({ prop = \"active_border_color\", value = \"$inactive_focus_value\", window = \"address:$address\" });"
+      fi
+    fi
+  done < <(jq -r --arg workspace_ids "$workspace_ids" --rawfile managed "$managed_file" '
+    ($managed | split("\n") | map(select(length > 0))) as $addresses
+    | .[]
+    | select(.mapped == true)
+    | select(.address as $address | ($addresses | index($address)) != null)
+    | .workspace.id as $workspace_id
+    | select($workspace_ids == "" or (("," + $workspace_ids + ",") | contains("," + ($workspace_id | tostring) + ",")))
+    | ((.tags // []) | map(sub("\\*$"; ""))) as $tags
+    | (if ($tags | index("default-opacity")) != null then "default"
+       elif (($tags | index("chromium-based-browser")) != null or ($tags | index("firefox-based-browser")) != null) then "browser"
+       else "opaque" end) as $opacity_profile
+    | [.address, (.workspace.id | tostring), $opacity_profile] | @tsv
+  ' <<<"$snapshot")
+  [[ -z "$commands" ]] || hyprctl --batch "$commands" >/dev/null
+}
+
+refresh_window_preferences() {
+  local preference="${1:-all}" workspace_ids="" snapshot
+  state_file_exists "$enabled_file" || return 0
+  snapshot="$(clients)"
+  if ! all_workspaces_enabled; then
+    workspace_ids="$(active_workspace_id)"
+    # Do not depend on the one-second service pass: adopt every already-open
+    # window on the target workspace before applying its changed preference.
+    merge_managed_workspace_windows "$snapshot" "$workspace_ids"
+  fi
+  apply_window_preferences "$snapshot" "$workspace_ids" "$preference"
+  # Apply dynamic rules after clearing legacy per-window values. Hyprland's
+  # explicit set_prop values otherwise win over the workspace opacity rule.
+  if [[ "$preference" == focus || "$preference" == transparency || "$preference" == all ]]; then configure_open_rules; fi
+  [[ "$preference" != all ]] || apply_titlebar_transparency_preference
+}
+
+ui_status() {
+  local workspace_id running=false floating=false focus=true transparency=true
+  local titlebar=true mouse_resize=true all_workspaces=true left_snap="quarter" right_snap="quarter" snap_gaps=true
+  workspace_id="$(active_workspace_id)"
+  if state_file_exists "$enabled_file"; then
+    running=true
+    if all_workspaces_enabled || workspace_is_enabled "$workspace_id"; then floating=true; fi
+  fi
+  if [[ "$floating" == true ]]; then
+    focus_border_enabled "$workspace_id" || focus=false
+    transparency_enabled "$workspace_id" || transparency=false
+  fi
+  titlebar_transparency_enabled || titlebar=false
+  mouse_resize_enabled || mouse_resize=false
+  all_workspaces_enabled || all_workspaces=false
+  [[ -e "$left_snap_half_file" ]] && left_snap="half"
+  [[ -e "$right_snap_half_file" ]] && right_snap="half"
+  snap_gaps_enabled || snap_gaps=false
+  jq -cn \
+    --argjson floating "$floating" --argjson running "$running" \
+    --argjson focus "$focus" --argjson transparency "$transparency" \
+    --argjson titlebar "$titlebar" --argjson mouseResize "$mouse_resize" \
+    --argjson allWorkspaces "$all_workspaces" --arg leftSnap "$left_snap" \
+    --arg rightSnap "$right_snap" --argjson snapGaps "$snap_gaps" \
+    '{floating: $floating, running: $running, focus: $focus, transparency: $transparency,
+      titlebar: $titlebar, mouseResize: $mouseResize, allWorkspaces: $allWorkspaces,
+      leftSnap: $leftSnap, rightSnap: $rightSnap, snapGaps: $snapGaps}'
 }
 
 bounded_hypr_json() {
@@ -434,7 +769,7 @@ monitors() {
 }
 
 managed_windows_match() {
-  local expected="$1" clients_snapshot ledger_snapshot result=0
+  local expected="$1" workspace_ids="${2:-}" clients_snapshot ledger_snapshot result=0
   ledger_snapshot="$(mktemp -p "$state_dir" '.managed-read.XXXXXX')" || return 1
   register_temporary_file "$ledger_snapshot"
   snapshot_managed_ledger "$ledger_snapshot"
@@ -442,11 +777,13 @@ managed_windows_match() {
     rm -f -- "$ledger_snapshot"
     return 1
   }
-  jq -e --argjson expected "$expected" --rawfile managed "$ledger_snapshot" '
+  jq -e --argjson expected "$expected" --arg workspace_ids "$workspace_ids" --rawfile managed "$ledger_snapshot" '
       ($managed | split("\n") | map(select(length > 0))) as $addresses
       | all(.[];
           .address as $address
-          | if ($addresses | index($address)) != null
+          | .workspace.id as $workspace_id
+          | if (($addresses | index($address)) != null
+              and ($workspace_ids == "" or (("," + $workspace_ids + ",") | contains("," + ($workspace_id | tostring) + ","))))
             then .floating == $expected
             else true
             end)
@@ -456,35 +793,34 @@ managed_windows_match() {
 }
 
 wait_for_managed_windows() {
-  local expected="$1" attempt
+  local expected="$1" workspace_ids="${2:-}" attempt
   for attempt in $(seq 1 40); do
-    managed_windows_match "$expected" && return 0
+    managed_windows_match "$expected" "$workspace_ids" && return 0
     sleep 0.025
   done
   return 1
 }
 
 sync_windows() {
+  local requested_workspace="${1:-}"
   state_file_exists "$enabled_file" || return 0
   state_file_exists "$managed_file" || die "managed state is missing while Floating Mode is enabled"
-  set_open_rule true
-  apply_transparency_preference
-  apply_titlebar_transparency_preference
+  configure_open_rules
   install_keybindings
-  local snapshot monitors address
+  local snapshot monitors address workspace_ids="" transition_commands="" window_commands
+  if ! all_workspaces_enabled; then
+    if [[ -n "$requested_workspace" ]]; then
+      [[ "$requested_workspace" =~ ^-?[0-9]+$ && ${#requested_workspace} -le 12 ]] || die "invalid requested workspace id"
+      workspace_ids="$requested_workspace"
+    else
+      workspace_ids="$(enabled_workspace_csv)"
+    fi
+  fi
   snapshot="$(clients)"
   prune_managed_ledger "$snapshot"
-  # Windows caught by the compositor rule already have their final geometry.
-  # Record their tag so disabling the mode can restore only windows we own.
-  while IFS= read -r address; do
-    [[ -n "$address" ]] || continue
-    append_managed_address "$address"
-  done < <(jq -r '
-    .[]
-    | select(.mapped == true and .floating == true)
-    | select(any((.tags // [])[]; startswith("floating-mode-managed")))
-    | .address
-  ' <<<"$snapshot")
+  # Adopt every window on an enabled workspace in one atomic ledger rewrite.
+  # This includes windows that were already floating before the service poll.
+  merge_managed_workspace_windows "$snapshot" "$workspace_ids"
   # Monitor geometry is optional: failure must not block the floating action.
   monitors="$(monitors || printf '[]')"
   while IFS= read -r address; do
@@ -492,56 +828,205 @@ sync_windows() {
     # A newly mapped window may briefly reject compositor commands. Never mark
     # it as handled until floating succeeded, and retry any managed window that
     # is still reported as tiled on the next service pass.
-    transition_window "$address" "$snapshot" "$monitors" || continue
-    append_managed_address "$address"
-  done < <(jq -r '.[] | select(.mapped == true and .floating == false) | .address' <<<"$snapshot")
-  wait_for_managed_windows true || die "Hyprland did not finish floating managed windows"
+    window_commands="$(transition_window_commands "$address" "$snapshot" "$monitors")"
+    [[ -n "$window_commands" ]] && transition_commands+="$window_commands"
+  done < <(jq -r --arg workspace_ids "$workspace_ids" '
+    .[]
+    | select(.mapped == true and .floating == false and .class != "org.omarchy.screensaver")
+    | .workspace.id as $workspace_id
+    | select($workspace_ids == "" or (("," + $workspace_ids + ",") | contains("," + ($workspace_id | tostring) + ",")))
+    | .address
+  ' <<<"$snapshot")
+  [[ -z "$transition_commands" ]] || hyprctl --batch "$transition_commands" >/dev/null
+  wait_for_managed_windows true "$workspace_ids" || die "Hyprland did not finish floating managed windows"
+  snapshot="$(clients)"
+  apply_window_preferences "$snapshot" "$workspace_ids"
+  # Reassert dynamic rules after legacy override cleanup for existing windows.
+  configure_open_rules
+  apply_titlebar_transparency_preference
 }
 
 enable_mode() {
-  if state_file_exists "$enabled_file"; then
+  local workspace_id marker
+  workspace_id="$(active_workspace_id)"
+  if all_workspaces_enabled && state_file_exists "$enabled_file"; then
     sync_windows
     return 0
   fi
-  truncate_state_file "$managed_file"
-  truncate_state_file "$enabled_file"
-  sync_windows
+  if ! state_file_exists "$enabled_file"; then
+    truncate_state_file "$managed_file"
+    truncate_state_file "$enabled_file"
+  fi
+  if all_workspaces_enabled; then
+    rm -f -- "$workspace_file"
+  else
+    marker="$(workspace_marker "$workspace_id")"
+    state_file_exists "$marker" && return 0
+    truncate_state_file "$marker"
+  fi
+  # Floating windows must remain resizable even when border resizing is
+  # disabled for the normal tiled workflow.
+  set_opaque_rule false
+  hyprctl eval 'hl.config({ general = { resize_on_border = true } })' >/dev/null
+  if all_workspaces_enabled; then sync_windows; else sync_windows "$workspace_id"; fi
   # Enable decorations only after all windows have reached their final
   # floating geometry, avoiding a tiled titlebar re-layout beforehand.
   set_titlebars true
   apply_focus_border_preference
-  install_keybindings
 }
 
-disable_mode() {
-  remove_keybindings
-  set_open_rule false
-  set_opaque_rule false
+disable_all_modes() {
+  # Dynamic opacity rules must be off before resetting per-window overrides;
+  # otherwise their final reevaluation can leave tiled windows fully opaque.
+  hyprctl eval '
+    omarchy_floating_mode_open_rule:set_enabled(false)
+    omarchy_floating_mode_browser_rule:set_enabled(false)
+    omarchy_floating_mode_set_global_focus_border(true, "rgba(000000ff)")
+    omarchy_floating_mode_opaque_rule:set_enabled(false)
+    omarchy_floating_mode_disable_all_workspace_rules()
+  ' >/dev/null
   if state_file_exists "$managed_file"; then
-    local live address ledger_snapshot
+    local snapshot address opacity_profile ledger_snapshot commands="" active_focus_value
+    active_focus_value="$(configured_border_color general:col.active_border)"
     ledger_snapshot="$(mktemp -p "$state_dir" '.managed-read.XXXXXX')" || die "cannot create managed-window ledger snapshot"
     register_temporary_file "$ledger_snapshot"
     snapshot_managed_ledger "$ledger_snapshot"
-    live="$(clients | jq -r '.[].address')"
-    while IFS= read -r address; do
+    snapshot="$(clients)"
+    while IFS=$'\t' read -r address opacity_profile; do
       [[ -n "$address" ]] || continue
-      if grep -Fxq "$address" <<<"$live"; then
-        tile_window "$address"
-      fi
-    done <"$ledger_snapshot"
+      commands+="dispatch hl.dsp.window.set_prop({ prop = \"active_border_color\", value = \"$active_focus_value\", window = \"address:$address\" });"
+      commands+="$(window_transparency_commands "$address" true "$opacity_profile")"
+      commands+="$(tile_window_commands "$address")"
+    done < <(jq -r --rawfile managed "$ledger_snapshot" '
+      ($managed | split("\n") | map(select(length > 0))) as $addresses
+      | .[] | select(.address as $address | ($addresses | index($address)) != null)
+      | ((.tags // []) | map(sub("\\*$"; ""))) as $tags
+      | (if ($tags | index("default-opacity")) != null then "default"
+         elif (($tags | index("chromium-based-browser")) != null or ($tags | index("firefox-based-browser")) != null) then "browser"
+         else "opaque" end) as $profile
+      | [.address, $profile] | @tsv
+    ' <<<"$snapshot")
+    [[ -z "$commands" ]] || hyprctl --batch "$commands" >/dev/null
     rm -f -- "$ledger_snapshot"
     wait_for_managed_windows false || die "Hyprland did not finish tiling managed windows"
   fi
-  set_titlebars false
+  disable_runtime_integrations
   if state_file_exists "$enabled_file"; then rm -f -- "$enabled_file"; fi
   if state_file_exists "$managed_file"; then rm -f -- "$managed_file"; fi
+  if state_file_exists "$workspace_file"; then rm -f -- "$workspace_file"; fi
   rmdir "$state_dir" 2>/dev/null || true
-  focus_border_enabled || restore_configured_focus_border
+}
+
+remove_managed_address() {
+  local address="$1" ledger_snapshot replacement
+  ledger_snapshot="$(mktemp -p "$state_dir" '.managed-read.XXXXXX')" || die "cannot create managed-window ledger snapshot"
+  register_temporary_file "$ledger_snapshot"
+  snapshot_managed_ledger "$ledger_snapshot"
+  replacement="$(mktemp -p "$state_dir" '.managed.XXXXXX')" || die "cannot create managed-window ledger"
+  register_temporary_file "$replacement"
+  chmod 600 -- "$replacement"
+  grep -Fvx "$address" "$ledger_snapshot" >"$replacement" || true
+  rm -f -- "$ledger_snapshot"
+  mv -f -- "$replacement" "$managed_file"
+}
+
+remove_managed_workspace() {
+  local workspace_id="$1" clients_snapshot="$2" ledger_snapshot replacement
+  ledger_snapshot="$(mktemp -p "$state_dir" '.managed-read.XXXXXX')" || die "cannot create managed-window ledger snapshot"
+  register_temporary_file "$ledger_snapshot"
+  snapshot_managed_ledger "$ledger_snapshot"
+  replacement="$(mktemp -p "$state_dir" '.managed.XXXXXX')" || die "cannot create managed-window ledger"
+  register_temporary_file "$replacement"
+  chmod 600 -- "$replacement"
+  jq -r --argjson workspace_id "$workspace_id" --rawfile managed "$ledger_snapshot" '
+    ([.[] | select(.workspace.id == $workspace_id) | .address]) as $removed
+    | ($managed | split("\n") | map(select(length > 0)))[]
+    | select($removed | index(.) == null)
+  ' <<<"$clients_snapshot" >"$replacement" || die "cannot update managed-window ledger"
+  rm -f -- "$ledger_snapshot"
+  mv -f -- "$replacement" "$managed_file"
+}
+
+disable_current_workspace() {
+  local workspace_id marker snapshot address opacity_profile commands="" active_focus_value
+  workspace_id="$(active_workspace_id)"
+  marker="$(workspace_marker "$workspace_id")"
+  state_file_exists "$marker" || return 0
+  # Stop this workspace's dynamic opacity rule before restoring the neutral
+  # multipliers and override flags used by the normal tiled configuration.
+  hyprctl eval "omarchy_floating_mode_disable_workspace_rules($workspace_id)" >/dev/null
+  active_focus_value="$(configured_border_color general:col.active_border)"
+  snapshot="$(clients)"
+  while IFS=$'\t' read -r address opacity_profile; do
+    [[ -n "$address" ]] || continue
+    commands+="dispatch hl.dsp.window.set_prop({ prop = \"active_border_color\", value = \"$active_focus_value\", window = \"address:$address\" });"
+    commands+="$(window_transparency_commands "$address" true "$opacity_profile")"
+    commands+="$(tile_window_commands "$address")"
+  done < <(jq -r --argjson workspace_id "$workspace_id" --rawfile managed "$managed_file" '
+    ($managed | split("\n") | map(select(length > 0))) as $addresses
+    | .[] | .address as $address
+    | select(.workspace.id == $workspace_id and ($addresses | index($address)) != null)
+    | ((.tags // []) | map(sub("\\*$"; ""))) as $tags
+    | (if ($tags | index("default-opacity")) != null then "default"
+       elif (($tags | index("chromium-based-browser")) != null or ($tags | index("firefox-based-browser")) != null) then "browser"
+       else "opaque" end) as $profile
+    | [.address, $profile] | @tsv
+  ' <<<"$snapshot")
+  [[ -z "$commands" ]] || hyprctl --batch "$commands" >/dev/null
+  wait_for_managed_windows false "$workspace_id" || die "Hyprland did not finish tiling workspace windows"
+  remove_managed_workspace "$workspace_id" "$snapshot"
+  rm -f -- "$marker"
+  if [[ -z "$(enabled_workspace_csv)" ]]; then
+    disable_all_modes
+  else
+    configure_open_rules
+    apply_titlebar_transparency_preference
+  fi
+}
+
+disable_mode() {
+  if all_workspaces_enabled; then disable_all_modes; else disable_current_workspace; fi
+}
+
+scope_all_from_current() {
+  local workspace_id current_floating=false
+  workspace_id="$(active_workspace_id)"
+  current_workspace_is_selected && current_floating=true
+  copy_workspace_preferences_to_global "$workspace_id"
+
+  if [[ "$current_floating" == true ]]; then
+    rm -f -- "$current_workspace_only_file"
+    clear_workspace_mode_markers
+    sync_windows
+  else
+    if state_file_exists "$enabled_file"; then disable_all_modes; fi
+    clear_workspace_mode_markers
+    rm -f -- "$current_workspace_only_file"
+  fi
+}
+
+scope_current_from_all() {
+  local workspace_id global_floating=false
+  workspace_id="$(active_workspace_id)"
+  state_file_exists "$enabled_file" && global_floating=true
+  copy_global_preferences_to_workspace "$workspace_id"
+  if [[ "$global_floating" == true ]]; then disable_all_modes; fi
+  truncate_state_file "$current_workspace_only_file"
+  if [[ "$global_floating" == true ]]; then enable_mode; fi
 }
 
 require_tools
 prepare_state_dir
+if [[ "${1:-}" == sync ]] && ! state_file_exists "$enabled_file"; then exit 0; fi
 acquire_operation_lock "$@"
+prepare_settings_dir
+case "${1:-}" in
+  status|running-status|focus-border-status|transparency-status|titlebar-transparency-status|mouse-resize-status|scope-status|snap-left-status|snap-right-status|snap-gaps-status|ui-status) ;;
+  *)
+    migrate_legacy_workspace_state
+    migrate_global_titlebar_transparency
+    ;;
+esac
 case "${1:-}" in
   on)
     enable_mode
@@ -550,27 +1035,46 @@ case "${1:-}" in
     disable_mode
     ;;
   toggle)
-    if state_file_exists "$enabled_file"; then disable_mode; else enable_mode; fi
+    if state_file_exists "$enabled_file"; then
+      if current_workspace_is_selected; then
+        disable_mode
+      else
+        disable_mode
+        enable_mode
+      fi
+    else
+      enable_mode
+    fi
     ;;
   sync)
     sync_windows
     ;;
   status)
+    if state_file_exists "$enabled_file" && current_workspace_is_selected; then printf 'on\n'; else printf 'off\n'; fi
+    ;;
+  running-status)
     if state_file_exists "$enabled_file"; then printf 'on\n'; else printf 'off\n'; fi
+    ;;
+  ui-status)
+    ui_status
     ;;
   focus-border-on)
     prepare_settings_dir
-    rm -f -- "$focus_border_disabled_file"
-    if state_file_exists "$enabled_file"; then restore_configured_focus_border; fi
+    preference_file="$(workspace_setting_file "$focus_border_disabled_file")"
+    validate_setting_file "$preference_file"
+    rm -f -- "$preference_file"
+    if current_workspace_is_selected; then refresh_window_preferences focus; fi
     ;;
   focus-border-off)
     prepare_settings_dir
-    truncate_state_file "$focus_border_disabled_file"
-    if state_file_exists "$enabled_file"; then use_inactive_focus_border; fi
+    preference_file="$(workspace_setting_file "$focus_border_disabled_file")"
+    validate_setting_file "$preference_file"
+    truncate_state_file "$preference_file"
+    if current_workspace_is_selected; then refresh_window_preferences focus; fi
     ;;
   focus-border-status)
     prepare_settings_dir
-    if focus_border_enabled; then printf 'on\n'; else printf 'off\n'; fi
+    if ! current_workspace_is_selected || focus_border_enabled; then printf 'on\n'; else printf 'off\n'; fi
     ;;
   snap-left-quarter|snap-left-half)
     set_snap_mode "$left_snap_half_file" "${1#snap-left-}"
@@ -598,34 +1102,68 @@ case "${1:-}" in
     ;;
   transparency-on)
     prepare_settings_dir
-    rm -f -- "$transparency_disabled_file"
-    if state_file_exists "$enabled_file"; then set_opaque_rule false; fi
+    preference_file="$(workspace_setting_file "$transparency_disabled_file")"
+    validate_setting_file "$preference_file"
+    rm -f -- "$preference_file"
+    if current_workspace_is_selected; then refresh_window_preferences transparency; fi
     ;;
   transparency-off)
     prepare_settings_dir
-    truncate_state_file "$transparency_disabled_file"
-    if state_file_exists "$enabled_file"; then set_opaque_rule true; fi
+    preference_file="$(workspace_setting_file "$transparency_disabled_file")"
+    validate_setting_file "$preference_file"
+    truncate_state_file "$preference_file"
+    if current_workspace_is_selected; then refresh_window_preferences transparency; fi
     ;;
   transparency-status)
     prepare_settings_dir
-    if transparency_enabled; then printf 'on\n'; else printf 'off\n'; fi
+    if ! current_workspace_is_selected || transparency_enabled; then printf 'on\n'; else printf 'off\n'; fi
     ;;
   titlebar-transparency-on)
     prepare_settings_dir
-    rm -f -- "$titlebar_transparency_disabled_file"
-    apply_titlebar_transparency_preference
+    preference_file="$titlebar_transparency_disabled_file"
+    validate_setting_file "$preference_file"
+    rm -f -- "$preference_file"
+    if state_file_exists "$enabled_file" && current_workspace_is_selected; then apply_titlebar_transparency_preference; fi
     ;;
   titlebar-transparency-off)
     prepare_settings_dir
-    truncate_state_file "$titlebar_transparency_disabled_file"
-    apply_titlebar_transparency_preference
+    preference_file="$titlebar_transparency_disabled_file"
+    validate_setting_file "$preference_file"
+    truncate_state_file "$preference_file"
+    if state_file_exists "$enabled_file" && current_workspace_is_selected; then apply_titlebar_transparency_preference; fi
     ;;
   titlebar-transparency-status)
     prepare_settings_dir
     if titlebar_transparency_enabled; then printf 'on\n'; else printf 'off\n'; fi
     ;;
+  mouse-resize-on)
+    prepare_settings_dir
+    rm -f -- "$mouse_resize_disabled_file"
+    if ! state_file_exists "$enabled_file"; then apply_mouse_resize_preference; fi
+    ;;
+  mouse-resize-off)
+    prepare_settings_dir
+    truncate_state_file "$mouse_resize_disabled_file"
+    if ! state_file_exists "$enabled_file"; then apply_mouse_resize_preference; fi
+    ;;
+  mouse-resize-status)
+    prepare_settings_dir
+    if mouse_resize_enabled; then printf 'on\n'; else printf 'off\n'; fi
+    ;;
+  scope-all)
+    prepare_settings_dir
+    scope_all_from_current
+    ;;
+  scope-current)
+    prepare_settings_dir
+    scope_current_from_all
+    ;;
+  scope-status)
+    prepare_settings_dir
+    if all_workspaces_enabled; then printf 'all\n'; else printf 'current\n'; fi
+    ;;
   *)
-    echo "usage: floating-mode on|off|toggle|sync|status|focus-border-on|focus-border-off|focus-border-status|snap-left-quarter|snap-left-half|snap-left-status|snap-right-quarter|snap-right-half|snap-right-status|snap-gaps-on|snap-gaps-off|snap-gaps-status|transparency-on|transparency-off|transparency-status|titlebar-transparency-on|titlebar-transparency-off|titlebar-transparency-status" >&2
+    echo "usage: floating-mode on|off|toggle|sync|status|running-status|ui-status|focus-border-on|focus-border-off|focus-border-status|snap-left-quarter|snap-left-half|snap-left-status|snap-right-quarter|snap-right-half|snap-right-status|snap-gaps-on|snap-gaps-off|snap-gaps-status|transparency-on|transparency-off|transparency-status|titlebar-transparency-on|titlebar-transparency-off|titlebar-transparency-status|mouse-resize-on|mouse-resize-off|mouse-resize-status|scope-all|scope-current|scope-status" >&2
     exit 2
     ;;
 esac

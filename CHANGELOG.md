@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.6.0 — 2026-09-01
+
+- Kept the Omarchy screensaver fullscreen while Floating Mode is active
+- Added a persistent tiled-mode switch for resizing windows by dragging their borders
+- Added a persistent switch for applying Floating Mode globally or only to the current workspace
+- Hid Floating Mode titlebars on tiled windows outside the selected workspace
+- Saved focus-border and window-transparency preferences separately for every workspace when current-workspace scope is selected
+- Allowed multiple workspaces to remain in Floating Mode independently
+- Limited focus-border and opacity overrides to managed floating windows so tiled workspaces always keep their normal focus border and transparency
+- Made the All workspaces switch copy the current workspace's tiled/floating state and visual preferences to every workspace
+- Kept the All workspaces switch selectable while Floating Mode synchronization is active
+- Adopted already-floating windows into workspace management so the focus-border switch affects every Floating Mode window
+- Batched window geometry, focus, transparency, and tiling IPC updates to make mode switching substantially faster
+- Captured the target workspace before waiting for the operation lock so delayed actions cannot affect a different workspace
+- Changed background synchronization to non-blocking lock acquisition so it cannot queue ahead of user actions
+- Restored tiled focus borders with Omarchy's configured active color instead of an unreliable `unset` window property
+- Added creation-time Hyprland rules per enabled workspace so newly opened windows enter Floating Mode immediately instead of relying on polling
+- Applied each workspace's focus-border preference at window creation so new floating windows never flash or retain the active border when it is disabled
+- Applied each workspace's window-transparency preference at creation so newly opened floating windows immediately use the selected opacity
+- Made titlebar transparency global so changing it on any workspace updates every workspace
+- Restored Omarchy's original window transparency when leaving Floating Mode by disabling opacity rules before clearing per-window overrides
+- Replaced ten polling helper processes with one atomic UI status snapshot and kept read-only status checks out of the operation lock
+- Limited individual-workspace mode transitions and preference refreshes to the selected workspace instead of resynchronizing every enabled workspace
+- Split opacity handling cleanly between creation-time rules for new windows and immediate per-window updates for already-open windows, with overrides cleared on return to Tiling
+- Reduced the background repair loop frequency because creation-time rules now handle normal window mapping immediately
+- Restored the exact stock Omarchy opacity profile for each window when leaving Floating Mode instead of leaving the last numeric value at 1.0
+
 All notable changes to Floating Mode are documented here.
 
 ## 1.5.0 — 2026-08-31

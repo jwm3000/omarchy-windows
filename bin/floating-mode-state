@@ -45,6 +45,20 @@ if ($command eq 'truncate') {
     exit 0;
 }
 
+if ($command eq 'write') {
+    my $path = shift // fail('state-file write requires a path');
+    my $value = shift // fail('state-file write requires a value');
+    $value =~ /^-?\d+$/ && length($value) <= 12
+        or fail('state-file write requires a bounded integer');
+    my $handle = open_state_file($path, O_WRONLY | O_CREAT, 0600, 0);
+    truncate($handle, 0) or fail("cannot truncate state file: $path: $!");
+    my $data = "$value\n";
+    syswrite($handle, $data) == length($data)
+        or fail("cannot write state file: $path: $!");
+    close($handle) or fail("cannot close state file: $path: $!");
+    exit 0;
+}
+
 if ($command eq 'snapshot') {
     my $source = shift // fail('state-file snapshot requires a source');
     my $destination = shift // fail('state-file snapshot requires a destination');
@@ -78,11 +92,15 @@ if ($command eq 'snapshot') {
     exit 0;
 }
 
-if ($command eq 'lock-exec') {
-    my $path = shift // fail('state-file lock-exec requires a path');
-    @ARGV or fail('state-file lock-exec requires a command');
+if ($command eq 'lock-exec' || $command eq 'try-lock-exec') {
+    my $path = shift // fail("state-file $command requires a path");
+    @ARGV or fail("state-file $command requires a command");
     my $handle = open_state_file($path, O_RDWR | O_CREAT, 0600, 0);
-    flock($handle, LOCK_EX) or fail("cannot lock state file: $path: $!");
+    my $lock_flags = LOCK_EX | ($command eq 'try-lock-exec' ? LOCK_NB : 0);
+    if (!flock($handle, $lock_flags)) {
+        exit 0 if $command eq 'try-lock-exec';
+        fail("cannot lock state file: $path: $!");
+    }
 
     # sysopen marks the descriptor close-on-exec. Clear that flag so this
     # exact validated descriptor and its lock survive for the operation.
