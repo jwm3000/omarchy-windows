@@ -32,6 +32,8 @@ BarWidget {
     ? Quickshell.env("XDG_CONFIG_HOME") : Quickshell.env("HOME") + "/.config"
   readonly property string helper: configHome
     + "/omarchy/plugins/io.github.rawritude.floating-mode/bin/floating-mode"
+  readonly property string supervisor: configHome
+    + "/omarchy/plugins/io.github.rawritude.floating-mode/bin/floating-mode-run"
   readonly property string sessionLocale: {
     var locale = Quickshell.env("LANGUAGE")
     if (locale === "") locale = Quickshell.env("LC_ALL")
@@ -52,6 +54,10 @@ BarWidget {
     return german ? de : en
   }
 
+  function supervisedHelper(action) {
+    return [root.supervisor, "10", "1048576", "65536", "--", root.helper, action]
+  }
+
   function toggleMode() {
     if (actionProc.running) return
     busy = true
@@ -59,7 +65,7 @@ BarWidget {
     // Toggle against the helper's atomically checked runtime marker. Basing the
     // command on floatingMode can send the wrong action when a status poll is
     // still reporting the previous state.
-    actionProc.command = [root.helper, "toggle"]
+    actionProc.command = root.supervisedHelper("toggle")
     actionProc.running = true
   }
 
@@ -71,10 +77,8 @@ BarWidget {
     if (focusBorderActionProc.running) return
     focusBorderBusy = true
     lastError = ""
-    focusBorderActionProc.command = [
-      root.helper,
-      root.focusBorderEnabled ? "focus-border-off" : "focus-border-on"
-    ]
+    focusBorderActionProc.command = root.supervisedHelper(
+      root.focusBorderEnabled ? "focus-border-off" : "focus-border-on")
     focusBorderActionProc.running = true
   }
 
@@ -82,10 +86,8 @@ BarWidget {
     if (transparencyActionProc.running) return
     transparencyBusy = true
     lastError = ""
-    transparencyActionProc.command = [
-      root.helper,
-      root.transparencyEnabled ? "transparency-off" : "transparency-on"
-    ]
+    transparencyActionProc.command = root.supervisedHelper(
+      root.transparencyEnabled ? "transparency-off" : "transparency-on")
     transparencyActionProc.running = true
   }
 
@@ -93,10 +95,8 @@ BarWidget {
     if (titlebarTransparencyActionProc.running) return
     titlebarTransparencyBusy = true
     lastError = ""
-    titlebarTransparencyActionProc.command = [
-      root.helper,
-      root.titlebarTransparencyEnabled ? "titlebar-transparency-off" : "titlebar-transparency-on"
-    ]
+    titlebarTransparencyActionProc.command = root.supervisedHelper(
+      root.titlebarTransparencyEnabled ? "titlebar-transparency-off" : "titlebar-transparency-on")
     titlebarTransparencyActionProc.running = true
   }
 
@@ -104,10 +104,8 @@ BarWidget {
     if (mouseResizeActionProc.running || floatingMode) return
     mouseResizeBusy = true
     lastError = ""
-    mouseResizeActionProc.command = [
-      root.helper,
-      root.mouseResizeEnabled ? "mouse-resize-off" : "mouse-resize-on"
-    ]
+    mouseResizeActionProc.command = root.supervisedHelper(
+      root.mouseResizeEnabled ? "mouse-resize-off" : "mouse-resize-on")
     mouseResizeActionProc.running = true
   }
 
@@ -115,7 +113,7 @@ BarWidget {
     if (scopeActionProc.running) return
     scopeBusy = true
     lastError = ""
-    scopeActionProc.command = [root.helper, root.allWorkspaces ? "scope-current" : "scope-all"]
+    scopeActionProc.command = root.supervisedHelper(root.allWorkspaces ? "scope-current" : "scope-all")
     scopeActionProc.running = true
   }
 
@@ -123,7 +121,7 @@ BarWidget {
     if (snapActionProc.running) return
     snapBusy = true
     lastError = ""
-    snapActionProc.command = [root.helper, "snap-" + side + "-" + mode]
+    snapActionProc.command = root.supervisedHelper("snap-" + side + "-" + mode)
     snapActionProc.running = true
   }
 
@@ -131,16 +129,14 @@ BarWidget {
     if (snapActionProc.running) return
     snapBusy = true
     lastError = ""
-    snapActionProc.command = [
-      root.helper,
-      root.snapGapsEnabled ? "snap-gaps-off" : "snap-gaps-on"
-    ]
+    snapActionProc.command = root.supervisedHelper(
+      root.snapGapsEnabled ? "snap-gaps-off" : "snap-gaps-on")
     snapActionProc.running = true
   }
 
   Process {
     id: uiStatusProc
-    command: [root.helper, "ui-status"]
+    command: root.supervisedHelper("ui-status")
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {

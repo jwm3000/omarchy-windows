@@ -10,6 +10,7 @@ workspace_file="$state_dir/workspace"
 lock_file="$state_dir/operation.lock"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 state_helper="$script_dir/floating-mode-state"
+process_supervisor="$script_dir/floating-mode-run"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 settings_dir="$config_home/omarchy-floating-mode"
 focus_border_disabled_file="$settings_dir/focus-border-disabled"
@@ -24,6 +25,7 @@ keybindings_marker="$state_dir/keybindings"
 managed_max_bytes=8192
 managed_max_entries=256
 temporary_files=()
+hyprctl_binary=""
 
 cleanup_temporary_files() {
   ((${#temporary_files[@]} == 0)) || rm -f -- "${temporary_files[@]}"
@@ -175,9 +177,16 @@ append_managed_address() {
 }
 
 require_tools() {
-  command -v hyprctl >/dev/null 2>&1 || { echo "hyprctl is required" >&2; exit 1; }
+  hyprctl_binary="$(command -v hyprctl)" || { echo "hyprctl is required" >&2; exit 1; }
   command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
   command -v perl >/dev/null 2>&1 || { echo "perl is required" >&2; exit 1; }
+  [[ -x "$process_supervisor" ]] || { echo "floating-mode-run is required" >&2; exit 1; }
+}
+
+# Every compositor IPC runs in a separately supervised process group. A stuck
+# socket can therefore neither block the service forever nor leave descendants.
+hyprctl() {
+  "$process_supervisor" 3 1048576 65536 -- "$hyprctl_binary" "$@"
 }
 
 valid_address() {
@@ -193,6 +202,12 @@ tile_window_commands() {
 "dispatch hl.dsp.window.float({ action = \"off\", window = \"address:$address\" });"\
 "dispatch hl.dsp.window.tag({ tag = \"-floating-mode-managed\", window = \"address:$address\" });"\
 "dispatch hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"unset\", window = \"address:$address\" });"
+}
+
+manage_window_command() {
+  local address="$1"
+  valid_address "$address" || return 0
+  printf '%s' "dispatch hl.dsp.window.tag({ tag = \"+floating-mode-managed\", window = \"address:$address\" });"
 }
 
 transition_window_commands() {
@@ -671,9 +686,8 @@ bounded_hypr_json() {
   register_temporary_file "$buffer"
   chmod 600 -- "$buffer"
 
-  # Read at most one byte beyond the ceiling. With pipefail, a producer that
-  # keeps writing after head closes is rejected without entering a shell var.
-  if ! hyprctl -j "$resource" 2>/dev/null | head -c "$((max_bytes + 1))" >"$buffer"; then
+  if ! "$process_supervisor" 3 "$((max_bytes + 1))" 65536 \
+      -- "$hyprctl_binary" -j "$resource" >"$buffer"; then
     rm -f -- "$buffer"
     printf 'floating-mode: failed or oversized hyprctl %s response\n' "$resource" >&2
     return 1
@@ -761,6 +775,18 @@ sync_windows() {
   merge_managed_workspace_windows "$snapshot" "$workspace_ids"
   # Monitor geometry is optional: failure must not block the floating action.
   monitors="$(monitors || printf '[]')"
+  # The managed tag is also the titlebar ownership boundary. Apply it to
+  # windows that were already floating before this workspace was enabled;
+  # otherwise global hyprbars would decorate unrelated floating windows.
+  while IFS= read -r address; do
+    [[ -n "$address" ]] && transition_commands+="$(manage_window_command "$address")"
+  done < <(jq -r --arg workspace_ids "$workspace_ids" '
+    .[]
+    | select(.mapped == true and .class != "org.omarchy.screensaver" and .workspace.id > 0)
+    | .workspace.id as $workspace_id
+    | select($workspace_ids == "" or (("," + $workspace_ids + ",") | contains("," + ($workspace_id | tostring) + ",")))
+    | .address
+  ' <<<"$snapshot")
   # Calculate all placements in one pass. Re-parsing both complete snapshots
   # once per window made global mode switches quadratic.
   while IFS=$'\t' read -r address monitor_x monitor_y work_width work_height current_x current_y current_width current_height peer_count; do

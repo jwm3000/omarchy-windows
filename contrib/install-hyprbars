@@ -12,7 +12,13 @@ hyprland_file="$hypr_dir/hyprland.lua"
 require_line='require("hypr.floating-mode")'
 snap_source="$plugin_dir/contrib/aero-snap"
 snap_install_dir="$data_home/omarchy-floating-mode"
-cache_dir="/var/cache/hyprpm/$USER/hyprland-plugins"
+current_uid="$(id -u)"
+account_name="$(id -un "$current_uid")"
+[[ "$account_name" =~ ^[A-Za-z_][A-Za-z0-9_.-]*\$?$ && "$account_name" != "." && "$account_name" != ".." ]] || {
+  echo "The current uid does not resolve to a safe account name." >&2
+  exit 1
+}
+cache_dir="/var/cache/hyprpm/$account_name/hyprland-plugins"
 cache_plugin="$cache_dir/hyprbars.so"
 cache_state="$cache_dir/state.toml"
 backup_plugin="$state_home/hyprbars.so.official"
@@ -46,14 +52,16 @@ hyprbars_is_enabled() {
 }
 
 if [[ "${1:-}" == "--uninstall" ]]; then
-  require_commands hyprctl hyprpm sudo install sed grep
+  require_commands hyprctl hyprpm sudo install sed grep gcc mktemp
+  build_dir="$(mktemp -d)"
+  gcc -O2 -Wall -Wextra -Werror "$plugin_dir/contrib/safe-cache-install.c" -o "$build_dir/safe-cache-install"
   if [[ -f "$hyprland_file" ]]; then
     sed -i '\|^require("hypr\.floating-mode")$|d' "$hyprland_file"
   fi
   rm -f "$module_file"
   hyprpm disable hyprbars >/dev/null 2>&1 || true
   if [[ -f "$backup_plugin" ]]; then
-    sudo install -m755 "$backup_plugin" "$cache_plugin"
+    sudo "$build_dir/safe-cache-install" "$current_uid" "$backup_plugin"
   fi
   if [[ -f "$enabled_state" ]] && grep -qx true "$enabled_state"; then
     hyprpm enable hyprbars
@@ -74,19 +82,19 @@ require_commands hyprctl hyprpm git make cmake cpio pkg-config g++ gcc sudo inst
   echo "Run this from an installed $plugin_id plugin." >&2
   exit 1
 }
-[[ -f "$snap_source/main.cpp" && -f "$snap_source/geometry.hpp" && -f "$snap_source/Makefile" ]] || {
+[[ -f "$snap_source/main.cpp" && -f "$snap_source/geometry.hpp" && -f "$snap_source/Makefile" && -f "$plugin_dir/contrib/safe-cache-install.c" ]] || {
   echo "Missing bundled Aero Snap source." >&2
   exit 1
 }
 [[ -f "$hyprland_file" ]] || { echo "Missing $hyprland_file" >&2; exit 1; }
 
-hyprpm update
 if ! hyprpm list 2>/dev/null | grep -q 'Plugin hyprbars'; then
   hyprpm add https://github.com/hyprwm/hyprland-plugins 7644cecdb947060682891a0db2a0cdc5c0b9e704
 fi
 
 # Fetch, detach, and verify the literal reviewed commit before executing source.
 build_dir="$(mktemp -d)"
+gcc -O2 -Wall -Wextra -Werror "$plugin_dir/contrib/safe-cache-install.c" -o "$build_dir/safe-cache-install"
 git -C "$build_dir" init --quiet hyprland-plugins
 git -C "$build_dir/hyprland-plugins" remote add origin https://github.com/hyprwm/hyprland-plugins
 git -C "$build_dir/hyprland-plugins" fetch --depth 1 origin 7644cecdb947060682891a0db2a0cdc5c0b9e704
@@ -115,7 +123,7 @@ if [[ ! -f "$backup_plugin" ]]; then
 fi
 
 hyprpm disable hyprbars >/dev/null 2>&1 || true
-sudo install -m755 "$build_dir/hyprland-plugins/hyprbars/hyprbars.so" "$cache_plugin"
+sudo "$build_dir/safe-cache-install" "$current_uid" "$build_dir/hyprland-plugins/hyprbars/hyprbars.so"
 hyprpm enable hyprbars
 
 mkdir -p -m 700 "$snap_install_dir"

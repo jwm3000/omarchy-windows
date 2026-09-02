@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.8.0 — 2026-09-02
+
+- Limited native titlebars to windows carrying Floating Mode's managed tag, including already-floating windows adopted on an enabled workspace
+- Added bounded process-group supervision with deadlines and live stdout/stderr ceilings for compositor IPC, service synchronization, status polling, and menu actions
+- Hardened privileged hyprbars installation by deriving the account from the real UID and copying through an ownership-checked, no-follow descriptor chain
+- Removed the redundant global `hyprpm update` from installation; the reviewed upstream commit is still fetched and verified directly
+
 ## 1.7.0 — 2026-09-02
 
 - Enforced the configured inactive border color immediately before rendering floating no-focus windows, then restored Hyprland's normal decoration state as soon as a tracked window becomes tiled or focus borders are enabled

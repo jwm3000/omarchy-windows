@@ -1,0 +1,84 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK);
+use IO::Select;
+use POSIX qw(:sys_wait_h setpgid);
+use Time::HiRes qw(time sleep);
+
+sub usage { die "usage: floating-mode-run TIMEOUT STDOUT_LIMIT STDERR_LIMIT -- command [args...]\n" }
+
+my ($timeout, $stdout_limit, $stderr_limit) = splice(@ARGV, 0, 3);
+usage() unless defined($timeout) && defined($stdout_limit) && defined($stderr_limit);
+usage() unless shift(@ARGV) // '' eq '--';
+usage() unless @ARGV && $timeout =~ /^\d+(?:\.\d+)?$/
+    && $stdout_limit =~ /^\d+$/ && $stderr_limit =~ /^\d+$/;
+
+pipe(my $stdout_r, my $stdout_w) or die "floating-mode-run: pipe: $!\n";
+pipe(my $stderr_r, my $stderr_w) or die "floating-mode-run: pipe: $!\n";
+my $pid = fork();
+die "floating-mode-run: fork: $!\n" unless defined $pid;
+if ($pid == 0) {
+    close $stdout_r; close $stderr_r;
+    setpgid(0, 0) or die "floating-mode-run: setpgid: $!\n";
+    open STDOUT, '>&', $stdout_w or die "floating-mode-run: stdout: $!\n";
+    open STDERR, '>&', $stderr_w or die "floating-mode-run: stderr: $!\n";
+    close $stdout_w; close $stderr_w;
+    exec { $ARGV[0] } @ARGV or die "floating-mode-run: exec: $!\n";
+}
+close $stdout_w; close $stderr_w;
+setpgid($pid, $pid); # harmless if the child won the race
+for my $fh ($stdout_r, $stderr_r) {
+    fcntl($fh, F_SETFL, fcntl($fh, F_GETFL, 0) | O_NONBLOCK)
+        or die "floating-mode-run: nonblocking pipe: $!\n";
+}
+
+my $select = IO::Select->new($stdout_r, $stderr_r);
+my ($stdout_fd, $stderr_fd) = (fileno($stdout_r), fileno($stderr_r));
+my %data = ($stdout_fd => '', $stderr_fd => '');
+my %limit = ($stdout_fd => 0 + $stdout_limit, $stderr_fd => 0 + $stderr_limit);
+my $deadline = time + $timeout;
+my ($reason, $status);
+
+while ($select->count) {
+    my $remaining = $deadline - time;
+    if ($remaining <= 0) { $reason = 'timeout'; last }
+    for my $fh ($select->can_read($remaining > 0.05 ? 0.05 : $remaining)) {
+        my $read = sysread($fh, my $chunk, 16384);
+        if (defined($read) && $read > 0) {
+            my $fd = fileno($fh);
+            $data{$fd} .= $chunk;
+            if (length($data{$fd}) > $limit{$fd}) { $reason = 'output limit'; last }
+        } elsif (defined($read) && $read == 0) {
+            $select->remove($fh); close $fh;
+        } elsif (!$!{EAGAIN} && !$!{EWOULDBLOCK}) {
+            $reason = 'pipe read failure'; last;
+        }
+    }
+    last if $reason;
+    my $done = waitpid($pid, WNOHANG);
+    $status = $? if $done == $pid;
+}
+
+if ($reason) {
+    kill 'TERM', -$pid;
+    my $grace = time + 0.25;
+    my $reaped = 0;
+    while (time < $grace) {
+        if (waitpid($pid, WNOHANG) == $pid) { $status = $?; $reaped = 1; last }
+        sleep 0.01;
+    }
+    kill 'KILL', -$pid unless $reaped;
+}
+waitpid($pid, 0) unless defined $status;
+$status = $? unless defined $status;
+
+print STDOUT substr($data{$stdout_fd}, 0, $stdout_limit);
+print STDERR substr($data{$stderr_fd}, 0, $stderr_limit);
+if ($reason) {
+    print STDERR "floating-mode-run: $reason\n";
+    exit($reason eq 'timeout' ? 124 : 125);
+}
+exit 128 + ($status & 127) if $status & 127;
+exit($status >> 8);

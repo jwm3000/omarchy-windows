@@ -23,10 +23,10 @@ Runtime operation is local and uses the current user's permissions.
 | `git` | Clones that exact official source commit and applies the bundled patch |
 | `make`, `gcc`, `g++`, `pkg-config` | Builds `hyprbars.so`, the bundled Aero snap module, and its geometry tests |
 | `cmake`, `cpio` | Required by `hyprpm` for headers and plugin management |
-| `sudo`, `install` | Replaces and restores only the cached `hyprbars.so` |
+| `sudo` | Runs the bundled descriptor-based installer that replaces or restores only the cached `hyprbars.so` |
 | `sed`, `grep`, `awk`, `sha256sum`, `cut`, `mktemp` | Installer validation, module naming, metadata parsing, and temporary workspace handling |
 
-The installer verifies these commands before beginning. It needs network access only for `hyprpm update` and the clone of `https://github.com/hyprwm/hyprland-plugins`.
+The installer verifies these commands before beginning. It needs network access only for the pinned clone of `https://github.com/hyprwm/hyprland-plugins` (and initial HyprPM registration when hyprbars is absent).
 
 ## Files and privileges
 
@@ -41,7 +41,12 @@ Normal user writes:
 
 Privileged write:
 
-- `/var/cache/hyprpm/$USER/hyprland-plugins/hyprbars.so`
+- `/var/cache/hyprpm/<account-from-real-uid>/hyprland-plugins/hyprbars.so`
+
+The privileged installer resolves the account from the caller's real UID,
+opens every fixed path component with no-follow directory descriptors, checks
+ownership and write modes, and atomically replaces the module through the
+verified destination descriptor.
 
 The content-addressed snap filename lets Hyprland unload an old build before the installer removes it, avoiding in-place replacement of a loaded shared object. The original cached hyprbars module is saved before replacement. `--uninstall` restores it and its previous enabled state, removes the snap module and Lua integration, reloads Hyprland, and deletes the installer state.
 

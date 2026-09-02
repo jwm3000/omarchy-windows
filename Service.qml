@@ -12,10 +12,12 @@ Item {
     ? Quickshell.env("XDG_CONFIG_HOME") : Quickshell.env("HOME") + "/.config"
   readonly property string helper: configHome
     + "/omarchy/plugins/io.github.rawritude.floating-mode/bin/floating-mode"
+  readonly property string supervisor: configHome
+    + "/omarchy/plugins/io.github.rawritude.floating-mode/bin/floating-mode-run"
 
   Process {
     id: syncProc
-    command: [service.helper, "sync"]
+    command: [service.supervisor, "8", "65536", "65536", "--", service.helper, "sync"]
   }
 
   Timer {

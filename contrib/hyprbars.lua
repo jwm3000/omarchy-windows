@@ -86,6 +86,7 @@ omarchy_floating_mode_open_rule = hl.window_rule({
 omarchy_floating_mode_open_rule:set_enabled(false)
 omarchy_floating_mode_open_no_focus_rule = nil
 
+
 -- Omarchy deliberately tiles Chromium-based browsers through a dynamic tag
 -- rule. While Floating Mode is active, remove that tag so the later tile=true
 -- effect cannot undo the initial floating placement. Disabling this rule lets
@@ -268,15 +269,6 @@ omarchy_floating_mode_opaque_rule = hl.window_rule({
   opacity = "1.0 override 1.0 override",
 })
 omarchy_floating_mode_opaque_rule:set_enabled(false)
-
--- Hyprbars is loaded globally, but decorations belong only on floating
--- windows. This is especially important in current-workspace scope: tiled
--- windows on every other workspace must retain their normal Omarchy look.
-hl.window_rule({
-  name = "floating-mode-no-titlebar-on-tiled-windows",
-  match = { float = false },
-  ["hyprbars:no_bar"] = true,
-})
 
 -- Dynamic tags added by mapping rules otherwise survive after a window is
 -- restored to tiling. Remove both ownership and focus-suppression state so

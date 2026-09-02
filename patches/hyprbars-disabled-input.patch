@@ -1,8 +1,48 @@
 diff --git a/hyprbars/barDeco.cpp b/hyprbars/barDeco.cpp
 --- a/hyprbars/barDeco.cpp
 +++ b/hyprbars/barDeco.cpp
-@@ -86,3 +86,3 @@
+@@ -61,6 +61,7 @@
+ SDecorationPositioningInfo CHyprBar::getPositioningInfo() {
+     const auto                 HEIGHT     = g_pGlobalState->config.barHeight->value();
+     const auto                 ENABLED    = g_pGlobalState->config.enabled->value();
++    const auto                 MANAGED    = m_pWindow->m_ruleApplicator->m_tagKeeper.isTagged("floating-mode-managed");
+     const auto                 PRECEDENCE = g_pGlobalState->config.barPrecedenceOverBorder->value();
+ 
+     SDecorationPositioningInfo info;
+@@ -68,7 +69,7 @@
+     info.edges          = DECORATION_EDGE_TOP;
+     info.priority       = PRECEDENCE ? 10005 : 5000;
+     info.reserved       = true;
+-    info.desiredExtents = {{0, m_hidden || !ENABLED ? 0 : HEIGHT}, {0, 0}};
++    info.desiredExtents = {{0, m_hidden || !ENABLED || !MANAGED ? 0 : HEIGHT}, {0, 0}};
+     return info;
+ }
+ 
+@@ -84,7 +85,8 @@
+ }
+ 
  bool CHyprBar::inputIsValid() {
 -    if (m_hidden)
-+    if (!g_pGlobalState->config.enabled->value() || m_hidden)
++    if (!g_pGlobalState->config.enabled->value() || m_hidden ||
++        !m_pWindow->m_ruleApplicator->m_tagKeeper.isTagged("floating-mode-managed"))
          return false;
+ 
+     if (g_pSeatManager->m_seatGrab && !g_pSeatManager->m_seatGrab->accepts(m_pWindow->wlSurface()->resource()))
+@@ -447,13 +449,14 @@
+ 
+ void CHyprBar::draw(PHLMONITOR pMonitor, const float& a) {
+     const auto ENABLED = g_pGlobalState->config.enabled->value();
++    const auto MANAGED = m_pWindow->m_ruleApplicator->m_tagKeeper.isTagged("floating-mode-managed");
+ 
+-    if (m_bLastEnabledState != ENABLED) {
+-        m_bLastEnabledState = ENABLED;
++    if (m_bLastEnabledState != (ENABLED && MANAGED)) {
++        m_bLastEnabledState = ENABLED && MANAGED;
+         g_pDecorationPositioner->repositionDeco(this);
+     }
+ 
+-    if (m_hidden || !validMapped(m_pWindow) || !ENABLED)
++    if (m_hidden || !validMapped(m_pWindow) || !ENABLED || !MANAGED)
+         return;
+ 
+     const auto PWINDOW = m_pWindow.lock();
