@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 
 // Headless service: keeps newly opened windows floating while the navbar
@@ -8,6 +9,7 @@ import Quickshell.Io
 Item {
   id: service
   property var shell: null
+  property bool syncPending: false
   readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") !== ""
     ? Quickshell.env("XDG_CONFIG_HOME") : Quickshell.env("HOME") + "/.config"
   readonly property string helper: configHome
@@ -18,6 +20,26 @@ Item {
   Process {
     id: syncProc
     command: [service.supervisor, "8", "65536", "65536", "--", service.helper, "sync"]
+    onExited: {
+      if (service.syncPending) {
+        service.syncPending = false
+        syncProc.running = true
+      }
+    }
+  }
+
+  function requestSync() {
+    if (syncProc.running) service.syncPending = true
+    else syncProc.running = true
+  }
+
+  Connections {
+    target: Hyprland
+    function onRawEvent(event) {
+      var name = String(event && event.name ? event.name : "")
+      if (name === "workspace" || name === "workspacev2" || name === "focusedmon")
+        service.requestSync()
+    }
   }
 
   Timer {
@@ -27,6 +49,6 @@ Item {
     running: true
     repeat: true
     triggeredOnStart: true
-    onTriggered: if (!syncProc.running) syncProc.running = true
+    onTriggered: service.requestSync()
   }
 }

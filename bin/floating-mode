@@ -495,6 +495,18 @@ apply_mouse_resize_preference() {
   hyprctl eval "hl.config({ general = { resize_on_border = $value } })" >/dev/null
 }
 
+apply_mouse_resize_context() {
+  local value=false
+  # Hyprland exposes resize_on_border globally rather than per workspace.
+  # Floating Mode therefore owns the live value while it is running: the
+  # visible floating workspace is always resizable, while a tiled workspace
+  # follows the user's menu preference.
+  if current_workspace_is_selected || mouse_resize_enabled; then
+    value=true
+  fi
+  hyprctl eval "hl.config({ general = { resize_on_border = $value } })" >/dev/null
+}
+
 disable_runtime_integrations() {
   local resize_value=false
   mouse_resize_enabled && resize_value=true
@@ -757,6 +769,7 @@ sync_windows() {
   local requested_workspace="${1:-}"
   state_file_exists "$enabled_file" || return 0
   state_file_exists "$managed_file" || die "managed state is missing while Floating Mode is enabled"
+  apply_mouse_resize_context
   install_keybindings
   local snapshot monitors address workspace_ids="" transition_commands="" window_commands
   local monitor_x monitor_y work_width work_height current_x current_y current_width current_height peer_count
@@ -856,7 +869,7 @@ enable_mode() {
   # Floating windows must remain resizable even when border resizing is
   # disabled for the normal tiled workflow.
   set_opaque_rule false
-  hyprctl eval 'hl.config({ general = { resize_on_border = true } })' >/dev/null
+  apply_mouse_resize_context
   if all_workspaces_enabled; then sync_windows; else sync_windows "$workspace_id"; fi
   apply_focus_border_preference
 }
@@ -960,6 +973,7 @@ disable_current_workspace() {
   if [[ -z "$(enabled_workspace_csv)" ]]; then
     disable_all_modes
   else
+    apply_mouse_resize_context
     configure_open_rules
     apply_titlebar_transparency_preference
   fi
@@ -1119,12 +1133,12 @@ case "${1:-}" in
   mouse-resize-on)
     prepare_settings_dir
     rm -f -- "$mouse_resize_disabled_file"
-    if ! state_file_exists "$enabled_file"; then apply_mouse_resize_preference; fi
+    if state_file_exists "$enabled_file"; then apply_mouse_resize_context; else apply_mouse_resize_preference; fi
     ;;
   mouse-resize-off)
     prepare_settings_dir
     truncate_state_file "$mouse_resize_disabled_file"
-    if ! state_file_exists "$enabled_file"; then apply_mouse_resize_preference; fi
+    if state_file_exists "$enabled_file"; then apply_mouse_resize_context; else apply_mouse_resize_preference; fi
     ;;
   mouse-resize-status)
     prepare_settings_dir

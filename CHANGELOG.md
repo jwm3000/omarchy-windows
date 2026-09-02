@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.1 — 2026-09-02
+
+- Made the tiled-mode mouse-resize switch take effect even while another workspace remains in Floating Mode
+- Kept border resizing permanently available on the active Floating Mode workspace while tiled workspaces follow the saved menu preference
+- Applied the correct resize behavior immediately when the focused workspace changes instead of waiting for the periodic repair pass
+
 ## 1.8.0 — 2026-09-02
 
 - Limited native titlebars to windows carrying Floating Mode's managed tag, including already-floating windows adopted on an enabled workspace
