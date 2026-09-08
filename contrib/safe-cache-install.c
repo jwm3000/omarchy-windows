@@ -11,14 +11,41 @@
 
 static void die(const char *message) { perror(message); exit(1); }
 
-static int open_directory(int parent, const char *name, uid_t owner) {
+static int open_directory(int parent, const char *name, uid_t owner, int allow_root) {
     int fd = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     struct stat st;
     if (fd < 0) die("safe-cache-install: open directory");
-    if (fstat(fd, &st) || !S_ISDIR(st.st_mode) || st.st_uid != owner || (st.st_mode & 0022)) {
+    if (fstat(fd, &st) || !S_ISDIR(st.st_mode)
+        || (st.st_uid != owner && (!allow_root || st.st_uid != 0)) || (st.st_mode & 0022)) {
         errno = EPERM; die("safe-cache-install: unsafe directory ownership or mode");
     }
     return fd;
+}
+
+static void adopt_directory(int fd, uid_t uid, gid_t gid) {
+    struct stat st;
+    if (fstat(fd, &st) || !S_ISDIR(st.st_mode)
+        || (st.st_uid != uid && st.st_uid != 0) || (st.st_mode & 0022)) {
+        errno = EPERM; die("safe-cache-install: unsafe directory before ownership repair");
+    }
+    if (st.st_uid == 0 && fchown(fd, uid, gid))
+        die("safe-cache-install: repair directory ownership");
+}
+
+static void adopt_regular_if_present(int parent, const char *name, uid_t uid, gid_t gid) {
+    int fd = openat(parent, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    struct stat st;
+    if (fd < 0) {
+        if (errno == ENOENT) return;
+        die("safe-cache-install: open state file");
+    }
+    if (fstat(fd, &st) || !S_ISREG(st.st_mode)
+        || (st.st_uid != uid && st.st_uid != 0) || (st.st_mode & 0022)) {
+        errno = EPERM; die("safe-cache-install: unsafe state file");
+    }
+    if (st.st_uid == 0 && fchown(fd, uid, gid))
+        die("safe-cache-install: repair state file ownership");
+    if (close(fd)) die("safe-cache-install: close state file");
 }
 
 int main(int argc, char **argv) {
@@ -52,11 +79,19 @@ int main(int argc, char **argv) {
 
     int root = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (root < 0) die("safe-cache-install: open root");
-    int var = open_directory(root, "var", 0);
-    int cache = open_directory(var, "cache", 0);
-    int hyprpm = open_directory(cache, "hyprpm", 0);
-    int account = open_directory(hyprpm, pw->pw_name, uid);
-    int plugins = open_directory(account, "hyprland-plugins", uid);
+    int var = open_directory(root, "var", 0, 0);
+    int cache = open_directory(var, "cache", 0, 0);
+    int hyprpm = open_directory(cache, "hyprpm", 0, 0);
+    int account = open_directory(hyprpm, pw->pw_name, uid, 1);
+    int plugins = open_directory(account, "hyprland-plugins", uid, 1);
+
+    /* HyprPM may recreate this account-specific cache as root during a system
+       update. The descriptor chain above proves every component before the
+       narrowly scoped ownership repair; no path is reopened afterwards. */
+    adopt_directory(account, uid, pw->pw_gid);
+    adopt_directory(plugins, uid, pw->pw_gid);
+    adopt_regular_if_present(account, "state.toml", uid, pw->pw_gid);
+    adopt_regular_if_present(plugins, "state.toml", uid, pw->pw_gid);
 
     char temporary[64];
     snprintf(temporary, sizeof temporary, ".hyprbars.so.install.%ld", (long)getpid());

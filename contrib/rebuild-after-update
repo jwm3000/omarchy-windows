@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+plugin_id=io.github.rawritude.floating-mode
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-floating-mode"
+installer="$config_home/omarchy/plugins/$plugin_id/contrib/install-hyprbars"
+abi_state="$state_home/native-abi"
+
+[[ -x "$installer" ]] || exit 0
+command -v Hyprland >/dev/null 2>&1 || exit 0
+command -v jq >/dev/null 2>&1 || exit 0
+
+installed_abi="$(Hyprland --version-json 2>/dev/null | jq -er '.abiHash | select(type == "string" and length > 0 and length <= 256)')" || {
+  echo "Floating Mode: unable to determine the installed Hyprland ABI; automatic rebuild skipped." >&2
+  exit 1
+}
+
+if [[ -f "$abi_state" ]] && [[ "$(<"$abi_state")" == "$installed_abi" ]]; then
+  exit 0
+fi
+
+echo "Floating Mode: Hyprland ABI changed; rebuilding native integrations."
+if "$installer" --auto-rebuild; then
+  command -v notify-send >/dev/null 2>&1 \
+    && notify-send "Floating Mode updated" "Native modules were rebuilt for the new Hyprland ABI." \
+    || true
+else
+  command -v notify-send >/dev/null 2>&1 \
+    && notify-send -u critical "Floating Mode needs attention" "Automatic native-module rebuild failed. Run contrib/install-hyprbars in a terminal." \
+    || true
+  exit 1
+fi

@@ -54,7 +54,7 @@ The titlebar uses the official Hyprland `hyprbars` plugin with small bundled hov
 - `hyprpm`, `git`, `make`, `cmake`, `cpio`, `pkg-config`, `gcc`, and `g++`
 - `sudo` permission to replace the cached `hyprbars.so`
 
-The installer checks every required command before making changes. It builds both modules for the installed Hyprland ABI, verifies the snap geometry tests, saves the original hyprbars module, and restores it during uninstall. The upstream hyprbars source is pinned to reviewed commit `7644cecdb947060682891a0db2a0cdc5c0b9e704`.
+The installer checks every required command before making changes. It builds both modules for the installed Hyprland ABI, verifies the snap geometry tests, saves the original hyprbars module, and restores it during uninstall. It also installs a lightweight Omarchy `post-update` hook. The hook compares Hyprland's complete ABI hash after system packages are updated and rebuilds the native integrations only when that hash changed. The upstream hyprbars source is pinned to reviewed commit `7644cecdb947060682891a0db2a0cdc5c0b9e704`.
 
 On a minimal Arch-based installation, missing build tools can be installed with:
 
@@ -157,7 +157,13 @@ If an update changes `contrib/hyprbars.lua`, `contrib/aero-snap/`, or the bundle
 ~/.config/omarchy/plugins/io.github.rawritude.floating-mode/contrib/install-hyprbars
 ```
 
-Because Hyprland plugins are ABI-sensitive, rerun the installer after a Hyprland update if either native module no longer loads.
+Because Hyprland plugins are ABI-sensitive, the installer records the ABI it successfully built against. During future `omarchy update` runs, the installed post-update hook automatically rebuilds both modules when Hyprland's ABI hash changes. Normal updates with an unchanged ABI do nothing. Interactive updates reuse the update's existing `sudo` authorization; unattended updates never prompt and display a notification with the manual recovery command if non-interactive authorization is unavailable.
+
+If an update was performed outside `omarchy update`, or an automatic rebuild reports a failure, rerun the installer manually:
+
+```bash
+~/.config/omarchy/plugins/io.github.rawritude.floating-mode/contrib/install-hyprbars
+```
 
 ## Removal
 
@@ -168,7 +174,7 @@ First click the bar button to return to tiled mode. Then run:
 omarchy plugin remove io.github.rawritude.floating-mode --yes
 ```
 
-The uninstall step removes the added Lua configuration and snap module, restores the original `hyprbars.so` and its previous enabled state, reloads Hyprland, and removes the plugin's installer state.
+The uninstall step removes the added Lua configuration, snap module, post-update hook, and ABI state; restores the original `hyprbars.so` and its previous enabled state; then reloads Hyprland.
 
 If the widget is unavailable while Floating Mode is still active, restore tiling manually before removing the plugin:
 
@@ -192,7 +198,7 @@ The bundled `omarchy-windows-snap` plugin handles drag zones, previews, focused-
 - The plugin reads window geometry and metadata from `hyprctl`, never window contents
 - No telemetry, analytics, network requests, or background downloads are used at runtime
 - Network access occurs only when the explicit titlebar installer invokes `hyprpm` and clones the official Hyprland plugins repository
-- `sudo` is used only to install or restore `/var/cache/hyprpm/$USER/hyprland-plugins/hyprbars.so`
+- `sudo` is used only by the descriptor-verified cache helper to install or restore `/var/cache/hyprpm/<account-from-real-uid>/hyprland-plugins/hyprbars.so`; if HyprPM recreated that fixed account cache as root, the helper also returns its two cache directories and exact `state.toml` files to that account
 - The Aero snap module is built from this repository's MIT-licensed source and installed without privileges below `$XDG_DATA_HOME/omarchy-floating-mode`
 - Persistent configuration is limited to `~/.config/hypr/floating-mode.lua`, one `require(...)` line, the user-local snap module, and reversible state below `$XDG_STATE_HOME`
 
@@ -201,7 +207,7 @@ The bundled `omarchy-windows-snap` plugin handles drag zones, previews, focused-
 ```bash
 omarchy plugin validate .
 qmllint -I /usr/share/omarchy/shell BarWidget.qml Service.qml
-bash -n bin/floating-mode contrib/install-hyprbars
+bash -n bin/floating-mode contrib/install-hyprbars contrib/rebuild-after-update
 make -C contrib/aero-snap test all
 ```
 

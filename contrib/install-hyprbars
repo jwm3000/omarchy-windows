@@ -23,7 +23,16 @@ cache_plugin="$cache_dir/hyprbars.so"
 cache_state="$cache_dir/state.toml"
 backup_plugin="$state_home/hyprbars.so.official"
 enabled_state="$state_home/hyprbars-was-enabled"
+abi_state="$state_home/native-abi"
+post_update_hook="$config_home/omarchy/hooks/post-update.d/$plugin_id"
 build_dir=""
+auto_rebuild=false
+
+case "${1:-}" in
+  --auto-rebuild) auto_rebuild=true ;;
+  --uninstall|"") ;;
+  *) echo "usage: install-hyprbars [--auto-rebuild|--uninstall]" >&2; exit 2 ;;
+esac
 
 cleanup() {
   [[ -z "$build_dir" ]] || rm -rf -- "$build_dir"
@@ -71,12 +80,14 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   rm -f -- "$snap_install_dir"/omarchy-windows-snap-*.so
   rmdir "$snap_install_dir" 2>/dev/null || true
   rm -f "$backup_plugin" "$enabled_state"
+  rm -f "$abi_state" "$post_update_hook"
+  rmdir "$(dirname "$post_update_hook")" 2>/dev/null || true
   rmdir "$state_home" 2>/dev/null || true
   echo "Removed Floating Mode's snapping and titlebar integrations, then restored the original hyprbars module."
   exit 0
 fi
 
-require_commands hyprctl hyprpm git make cmake cpio pkg-config g++ gcc sudo install sed grep mktemp awk sha256sum cut
+require_commands Hyprland hyprctl hyprpm jq git make cmake cpio pkg-config g++ gcc sudo install sed grep mktemp awk sha256sum cut
 
 [[ -f "$plugin_dir/contrib/hyprbars.lua" ]] || {
   echo "Run this from an installed $plugin_id plugin." >&2
@@ -123,8 +134,17 @@ if [[ ! -f "$backup_plugin" ]]; then
 fi
 
 hyprpm disable hyprbars >/dev/null 2>&1 || true
-sudo "$build_dir/safe-cache-install" "$current_uid" "$build_dir/hyprland-plugins/hyprbars/hyprbars.so"
+sudo_options=()
+if [[ "$auto_rebuild" == true && "${OMARCHY_UPDATE_UNATTENDED:-}" == 1 ]]; then
+  sudo_options=(-n)
+fi
+sudo "${sudo_options[@]}" "$build_dir/safe-cache-install" "$current_uid" "$build_dir/hyprland-plugins/hyprbars/hyprbars.so"
 hyprpm enable hyprbars
+hyprpm reload
+# HyprPM may rewrite its plugin state as root while reloading. Run the same
+# verified atomic install once more so both the selected module and its exact
+# cache metadata finish in a user-manageable state.
+sudo "${sudo_options[@]}" "$build_dir/safe-cache-install" "$current_uid" "$build_dir/hyprland-plugins/hyprbars/hyprbars.so"
 
 mkdir -p -m 700 "$snap_install_dir"
 if [[ -e "$snap_plugin" ]]; then
@@ -143,6 +163,11 @@ hyprctl reload
 errors="$(hyprctl configerrors)"
 printf '%s\n' "$errors"
 [[ -z "$errors" ]] || exit 1
+
+installed_abi="$(Hyprland --version-json | jq -er '.abiHash | select(type == "string" and length > 0 and length <= 256)')" \
+  || { echo "Unable to determine the installed Hyprland ABI." >&2; exit 1; }
+printf '%s\n' "$installed_abi" >"$abi_state"
+install -Dm755 "$plugin_dir/contrib/rebuild-after-update" "$post_update_hook"
 
 for installed_snap in "$snap_install_dir"/omarchy-windows-snap-*.so; do
   [[ "$installed_snap" == "$snap_plugin" || ! -e "$installed_snap" ]] || rm -f -- "$installed_snap"

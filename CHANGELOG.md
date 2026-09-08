@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.0 — 2026-09-08
+
+- Added an Omarchy post-update hook that compares the complete installed Hyprland ABI hash and rebuilds the native titlebar and snap modules only when that ABI changes
+- Recorded the successfully built ABI so ordinary system and plugin updates remain fast and perform no network or privileged work
+- Safely recovered when HyprPM recreates its account-specific cache directories and state files as root during an update
+- Explicitly reloaded HyprPM after replacing the patched hyprbars module so an already-enabled plugin cannot retain the stale binary
+- Added desktop notifications for successful automatic rebuilds and actionable rebuild failures
+
 ## 1.8.1 — 2026-09-02
 
 - Made the tiled-mode mouse-resize switch take effect even while another workspace remains in Floating Mode
