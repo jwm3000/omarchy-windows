@@ -108,15 +108,12 @@ build_dir="$(mktemp -d)"
 gcc -O2 -Wall -Wextra -Werror "$plugin_dir/contrib/safe-cache-install.c" -o "$build_dir/safe-cache-install"
 git -C "$build_dir" init --quiet hyprland-plugins
 git -C "$build_dir/hyprland-plugins" remote add origin https://github.com/hyprwm/hyprland-plugins
-git -C "$build_dir/hyprland-plugins" fetch --depth 1 origin 7644cecdb947060682891a0db2a0cdc5c0b9e704
-git -C "$build_dir/hyprland-plugins" checkout --detach 7644cecdb947060682891a0db2a0cdc5c0b9e704
-[[ "$(git -C "$build_dir/hyprland-plugins" rev-parse HEAD)" == "7644cecdb947060682891a0db2a0cdc5c0b9e704" ]] || {
-  echo "Fetched source does not match the reviewed commit." >&2
-  exit 1
-}
-git -C "$build_dir/hyprland-plugins" apply "$plugin_dir/patches/hyprbars-button-hover.patch"
-git -C "$build_dir/hyprland-plugins" apply "$plugin_dir/patches/hyprbars-disabled-input.patch"
-make -C "$build_dir/hyprland-plugins/hyprbars"
+git -C "$build_dir/hyprland-plugins" fetch --depth 1 origin 7644cecdb947060682891a0db2a0cdc5c0b9e704 \
+  && git -C "$build_dir/hyprland-plugins" checkout --detach 7644cecdb947060682891a0db2a0cdc5c0b9e704 \
+  && test "$(git -C "$build_dir/hyprland-plugins" rev-parse HEAD)" = 7644cecdb947060682891a0db2a0cdc5c0b9e704 \
+  && git -C "$build_dir/hyprland-plugins" apply "$plugin_dir/patches/hyprbars-button-hover.patch" \
+  && git -C "$build_dir/hyprland-plugins" apply "$plugin_dir/patches/hyprbars-disabled-input.patch" \
+  && make -C "$build_dir/hyprland-plugins/hyprbars"
 make -C "$snap_source" BUILD_DIR="$build_dir/aero-snap" test all
 snap_binary_sha256="$(sha256sum "$build_dir/aero-snap/omarchy-windows-snap.so" | cut -d' ' -f1)"
 snap_filename="omarchy-windows-snap-${snap_binary_sha256:0:16}.so"

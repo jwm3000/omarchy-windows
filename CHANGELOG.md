@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.1 — 2026-09-11
+
+- Kept remote hyprbars acquisition, detached full-commit checkout, exact HEAD verification, patch application, and build in one fail-closed chain so the marketplace can prove that no mutable source is executed
+
 ## 1.9.0 — 2026-09-08
 
 - Added an Omarchy post-update hook that compares the complete installed Hyprland ABI hash and rebuilds the native titlebar and snap modules only when that ABI changes
