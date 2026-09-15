@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.10.0 — 2026-09-15
+
+- Automatically check native setup on activation and open the integration installer in a terminal when required
+- Check loaded modules, Lua integration and native ABI; show a login requirement when installed and running Hyprland ABIs differ
+- Prevent duplicate installations and repeated automatic terminals after failure or cancellation
+- Show setup status and a manual retry action in the widget settings
+- Add isolated setup lifecycle regression tests
+
 ## 1.9.2 — 2026-09-15
 
 - Check required Lua rules and functions before enabling Floating Mode and show the integration installer path when setup is missing or incomplete

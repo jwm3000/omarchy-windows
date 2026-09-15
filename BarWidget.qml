@@ -8,6 +8,7 @@ BarWidget {
   id: root
   moduleName: "io.github.rawritude.floating-mode"
 
+  property string setupStatus: "checking"
   property bool floatingMode: false
   property bool modeRunning: false
   property bool focusBorderEnabled: true
@@ -59,7 +60,15 @@ BarWidget {
     return [root.supervisor, "10", "1048576", "65536", "--", root.helper, action]
   }
 
+  function retrySetup() {
+    if (setupRetryProc.running || setupStatus === "running") return
+    setupStatus = "running"
+    setupRetryProc.running = true
+  }
+
   function toggleMode() {
+    if (setupStatus !== "ready") { root.settingsOpen = true; return }
+
     if (actionProc.running) return
     busy = true
     lastError = ""
@@ -134,6 +143,30 @@ BarWidget {
     snapActionProc.command = root.supervisedHelper(
       root.snapGapsEnabled ? "snap-gaps-off" : "snap-gaps-on")
     snapActionProc.running = true
+  }
+
+  Process {
+    id: setupStatusProc
+    onExited: function(code) { if (code !== 0) root.setupStatus = "unavailable" }
+    command: [root.configHome + "/omarchy/plugins/io.github.rawritude.floating-mode/bin/floating-mode-setup", "status"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.setupStatus = String(text || "unavailable").trim() || "unavailable"
+    }
+  }
+
+  Process {
+    id: setupRetryProc
+    command: [root.configHome + "/omarchy/plugins/io.github.rawritude.floating-mode/bin/floating-mode-setup", "retry"]
+    onExited: { if (!setupStatusProc.running) setupStatusProc.running = true }
+  }
+
+  Timer {
+    interval: 5000
+    running: true
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: { if (!setupStatusProc.running) setupStatusProc.running = true }
   }
 
   Process {
@@ -319,6 +352,37 @@ BarWidget {
         font.family: root.bar.fontFamily
         font.pixelSize: Style.font.subtitle
         font.bold: true
+      }
+
+      Text {
+        width: parent.width
+        visible: root.setupStatus !== "ready"
+        wrapMode: Text.WordWrap
+        color: root.bar.foreground
+        font.family: root.bar.fontFamily
+        font.pixelSize: Style.font.body
+        text: root.setupStatus === "running"
+          ? root.localized("Einrichtung läuft im Terminal. Bitte dort abschließen.", "Setup is running in the terminal. Please finish it there.")
+          : root.setupStatus === "restart-required"
+            ? root.localized("Hyprland wurde aktualisiert. Bitte ab- und wieder anmelden.", "Hyprland was updated. Please log out and back in.")
+            : root.setupStatus === "unavailable" || root.setupStatus === "checking"
+              ? root.localized("Einrichtung wird geprüft. Hyprland muss erreichbar sein.", "Checking setup. Hyprland must be available.")
+              : root.localized("Die Einrichtung fehlt oder wurde nicht abgeschlossen.", "Setup is missing or did not complete.")
+      }
+
+      Rectangle {
+        width: parent.width
+        height: Style.space(34)
+        visible: root.setupStatus === "required" || root.setupStatus === "failed"
+        color: Color.accent
+        radius: Style.space(4)
+        Text {
+          anchors.centerIn: parent
+          text: root.localized("Setup starten / wiederholen", "Start / retry setup")
+          color: Color.background
+          font.family: root.bar.fontFamily
+        }
+        MouseArea { anchors.fill: parent; onClicked: root.retrySetup() }
       }
 
       Toggle {

@@ -88,7 +88,7 @@ prepare_state_dir() {
 acquire_operation_lock() {
   [[ ${FLOATING_MODE_LOCK_HELD:-} == 1 ]] && return
   case "${1:-}" in
-    status|running-status|focus-border-status|transparency-status|titlebar-transparency-status|mouse-resize-status|scope-status|snap-left-status|snap-right-status|snap-gaps-status|ui-status)
+    integration-check|status|running-status|focus-border-status|transparency-status|titlebar-transparency-status|mouse-resize-status|scope-status|snap-left-status|snap-right-status|snap-gaps-status|ui-status)
       return 0
       ;;
   esac
@@ -1066,12 +1066,15 @@ if [[ "${1:-}" == sync ]] && ! state_file_exists "$enabled_file"; then exit 0; f
 acquire_operation_lock "$@"
 prepare_settings_dir
 case "${1:-}" in
-  status|running-status|focus-border-status|transparency-status|titlebar-transparency-status|mouse-resize-status|scope-status|snap-left-status|snap-right-status|snap-gaps-status|ui-status) ;;
+  integration-check|status|running-status|focus-border-status|transparency-status|titlebar-transparency-status|mouse-resize-status|scope-status|snap-left-status|snap-right-status|snap-gaps-status|ui-status) ;;
   *)
     migrate_legacy_workspace_state
     ;;
 esac
 case "${1:-}" in
+  integration-check)
+    require_integration
+    ;;
   on)
     enable_mode
     ;;
@@ -1207,7 +1210,7 @@ case "${1:-}" in
     if all_workspaces_enabled; then printf 'all\n'; else printf 'current\n'; fi
     ;;
   *)
-    echo "usage: floating-mode on|off|toggle|sync|status|running-status|ui-status|focus-border-on|focus-border-off|focus-border-status|snap-left-quarter|snap-left-half|snap-left-status|snap-right-quarter|snap-right-half|snap-right-status|snap-gaps-on|snap-gaps-off|snap-gaps-status|transparency-on|transparency-off|transparency-status|titlebar-transparency-on|titlebar-transparency-off|titlebar-transparency-status|mouse-resize-on|mouse-resize-off|mouse-resize-status|scope-all|scope-current|scope-status" >&2
+    echo "usage: floating-mode on|off|toggle|sync|integration-check|status|running-status|ui-status|focus-border-on|focus-border-off|focus-border-status|snap-left-quarter|snap-left-half|snap-left-status|snap-right-quarter|snap-right-half|snap-right-status|snap-gaps-on|snap-gaps-off|snap-gaps-status|transparency-on|transparency-off|transparency-status|titlebar-transparency-on|titlebar-transparency-off|titlebar-transparency-status|mouse-resize-on|mouse-resize-off|mouse-resize-status|scope-all|scope-current|scope-status" >&2
     exit 2
     ;;
 esac

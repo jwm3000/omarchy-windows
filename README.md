@@ -21,7 +21,7 @@ One click turns the current desktop into a calm, free-form workspace. Windows ke
 - Never enlarges naturally smaller dialogs
 - Preserves the overview on busy workspaces by keeping window positions and shrinking them only slightly
 - Handles monitor scale, rotation, reserved bar space, and multi-monitor coordinates
-- Leaves windows that were already floating untouched when returning to tiled mode
+- Returns managed windows on enabled workspaces to tiling, including windows that were already floating
 - Exits maximized or fullscreen state before restoring managed windows to tiling
 - Adds a compact native titlebar for dragging, maximizing, and closing windows
 - Resizes floating windows from every side and corner with native directional mouse cursors
@@ -30,6 +30,7 @@ One click turns the current desktop into a calm, free-form workspace. Windows ke
 - Restores a window's previous size when it is dragged away from a snap zone
 - Adds focused-window keyboard snapping while Floating Mode is active
 - Restores a keyboard-snapped window to its original position and size
+- Checks setup automatically and opens an installer terminal only when integration is needed
 
 The result is simple: tiling when you want structure, floating when you want space and context.
 
@@ -41,9 +42,10 @@ The result is simple: tiling when you want structure, floating when you want spa
 - Hyprland 0.56 or newer
 - Omarchy Shell / Quickshell
 - `hyprctl`
-- `jq`
+- `jq`, `perl`, and `flock` (util-linux)
+- Omarchy’s terminal launcher and a configured terminal
 
-These runtime components are included with a standard current Omarchy installation.
+These runtime components are expected on a standard Omarchy 4 installation. Native modules must also match the installed Hyprland ABI; the pinned source is not guaranteed to compile against every newer Hyprland release.
 
 ### One-time native integration build
 
@@ -66,19 +68,27 @@ See [DEPENDENCIES.md](DEPENDENCIES.md) for the complete audited dependency and p
 
 ## Installation
 
-Run these commands after the GitHub repository is public:
+Install and enable the plugin from the plugin website, or run:
 
 ```bash
 omarchy plugin add https://github.com/jwm3000/omarchy-windows.git --enable --yes
-omarchy bar move io.github.rawritude.floating-mode --section right
-~/.config/omarchy/plugins/io.github.rawritude.floating-mode/contrib/install-hyprbars
 ```
 
-The final command is intentionally separate because Omarchy does not execute installation hooks or privileged commands when adding a plugin. Read [`contrib/install-hyprbars`](contrib/install-hyprbars) before running it if you want to review every system change.
+The widget defaults to the right side of the bar; a separate `omarchy bar move` command is optional. On activation, the service checks the Lua integration, loaded native modules, and native build ABI. If setup is required, it opens `contrib/install-hyprbars` automatically in a terminal. Enter your `sudo` password there if requested and let setup finish. Already working installations do not rebuild.
+
+A cancelled or failed setup does not repeatedly reopen a terminal on shell or login restarts. Right-click the widget and use **Start / retry setup** to try again. Missing build tools and compiler errors remain visible in the setup terminal. If the running Hyprland ABI differs from the installed package, log out and back in first.
+
+You can still run setup manually:
+
+```bash
+"${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/io.github.rawritude.floating-mode/contrib/install-hyprbars"
+```
+
+The automatic setup uses the plugin service's first-start check; Omarchy's package installer itself does not run a post-install hook. See [`contrib/install-hyprbars`](contrib/install-hyprbars) for the exact setup operations.
 
 ## Troubleshooting initial setup
 
-The separate `contrib/install-hyprbars` step is required for switching window mode too: it installs the Lua rules used by the helper. Adding the bar widget alone does not complete setup.
+The native setup installs the Lua rules needed for switching window mode too. Finish the automatically opened terminal before using the toggle. If no terminal opens, use **Start / retry setup** in the widget settings.
 
 If activation reports missing or incomplete integration, run these diagnostics in your Hyprland session:
 
@@ -94,7 +104,7 @@ Activation failures remove newly created enabled markers. Windows already change
 
 ## Usage
 
-Click the overlapping-windows icon in the Omarchy bar:
+After setup completes, click the overlapping-windows icon in the Omarchy bar. While setup is incomplete, a left-click opens the settings and setup status instead of switching windows:
 
 - Normal icon: tiled mode
 - Highlighted icon: Floating Mode is active
@@ -161,13 +171,15 @@ The runtime directory must be private and owned by the current user; unsafe dire
 
 ## Updating
 
-Update community plugins with Omarchy:
+Update Floating Mode with Omarchy:
 
 ```bash
-omarchy plugin update --yes
+omarchy plugin update io.github.rawritude.floating-mode
 ```
 
-If an update changes `contrib/hyprbars.lua`, `contrib/aero-snap/`, or the bundled hyprbars patches, rerun:
+Version 1.10.0 checks integration when its service starts. An already working installation with a matching ABI does not rebuild. If an automatic setup attempt previously failed or was cancelled, use **Start / retry setup** in the settings.
+
+The setup check does not compare native source revisions. If a release changes `contrib/hyprbars.lua`, `contrib/aero-snap/`, or the bundled hyprbars patches while the ABI stays the same, run the installer manually:
 
 ```bash
 ~/.config/omarchy/plugins/io.github.rawritude.floating-mode/contrib/install-hyprbars
@@ -190,7 +202,7 @@ First click the bar button to return to tiled mode. Then run:
 omarchy plugin remove io.github.rawritude.floating-mode --yes
 ```
 
-The uninstall step removes the added Lua configuration, snap module, post-update hook, and ABI state; restores the original `hyprbars.so` and its previous enabled state; then reloads Hyprland.
+The uninstall step removes the added Lua configuration, snap module, post-update hook, and ABI state; restores the original `hyprbars.so` and its previous enabled state; then reloads Hyprland. Preferences and the setup attempt history remain in the user configuration/state directories. A later reinstallation may therefore require **Start / retry setup**.
 
 If the widget is unavailable while Floating Mode is still active, restore tiling manually before removing the plugin:
 
@@ -202,7 +214,7 @@ If the widget is unavailable while Floating Mode is still active, restore tiling
 
 While the mode is enabled, a named Hyprland rule floats, sizes, and centers newly mapped tiled windows before their first frame. The headless service records the rule's window tag and remains as a recovery path for windows that reject their initial compositor command. Geometry is calculated in Hyprland's logical coordinate space, so fractional scaling and large displays remain predictable. Each recovery transition is sent as one animation-free Hyprland batch to avoid visible intermediate layouts.
 
-Only window addresses changed by Floating Mode are recorded. When the mode is disabled, only those windows return to tiling.
+Floating Mode records eligible windows on enabled workspaces, including windows that were already floating. When the mode is disabled, those managed windows return to tiling.
 
 Titlebars are rendered inside the compositor by the official [`hyprbars`](https://github.com/hyprwm/hyprland-plugins/tree/main/hyprbars) plugin. The bundled [`hyprbars-button-hover.patch`](patches/hyprbars-button-hover.patch) adds configurable circular hover backgrounds, while [`hyprbars-disabled-input.patch`](patches/hyprbars-disabled-input.patch) carries [hyprland-plugins#701](https://github.com/hyprwm/hyprland-plugins/pull/701) for the pinned build.
 
@@ -210,20 +222,21 @@ The bundled `omarchy-windows-snap` plugin handles drag zones, previews, focused-
 
 ## Privacy and security
 
-- Runtime operation is local and unprivileged
+- Window management and setup checks run locally as the current user
 - The plugin reads window geometry and metadata from `hyprctl`, never window contents
-- No telemetry, analytics, network requests, or background downloads are used at runtime
-- Network access occurs only when the explicit titlebar installer invokes `hyprpm` and clones the official Hyprland plugins repository
+- No telemetry or analytics; window management does not require network access
+- Enabling the plugin can automatically open the native setup installer in a visible terminal. Setup and ABI rebuilds access GitHub through `hyprpm` and `git` and may request a `sudo` password
 - `sudo` is used only by the descriptor-verified cache helper to install or restore `/var/cache/hyprpm/<account-from-real-uid>/hyprland-plugins/hyprbars.so`; if HyprPM recreated that fixed account cache as root, the helper also returns its two cache directories and exact `state.toml` files to that account
 - The Aero snap module is built from this repository's MIT-licensed source and installed without privileges below `$XDG_DATA_HOME/omarchy-floating-mode`
-- Persistent configuration is limited to `~/.config/hypr/floating-mode.lua`, one `require(...)` line, the user-local snap module, and reversible state below `$XDG_STATE_HOME`
+- User files include `~/.config/hypr/floating-mode.lua`, its `require(...)` line, preferences in `~/.config/omarchy-floating-mode/`, the user-local snap module, and the post-update hook
+- Setup attempt/lock files and native build state are stored below `$XDG_STATE_HOME/omarchy-floating-mode/` (default `~/.local/state/omarchy-floating-mode/`)
 
 ## Development and validation
 
 ```bash
 omarchy plugin validate .
 qmllint -I /usr/share/omarchy/shell BarWidget.qml Service.qml
-bash -n bin/floating-mode contrib/install-hyprbars contrib/rebuild-after-update
+bash -n bin/floating-mode bin/floating-mode-setup contrib/install-hyprbars contrib/rebuild-after-update
 python -m unittest discover -s tests -v
 make -C contrib/aero-snap test all
 ```

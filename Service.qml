@@ -18,6 +18,21 @@ Item {
     + "/omarchy/plugins/io.github.rawritude.floating-mode/bin/floating-mode-run"
 
   Process {
+    id: setupProc
+    command: [service.configHome + "/omarchy/plugins/io.github.rawritude.floating-mode/bin/floating-mode-setup", "auto"]
+    running: true
+    onExited: function(code) {
+      if (code === 75) setupRetryTimer.start()
+    }
+  }
+
+  Timer {
+    id: setupRetryTimer
+    interval: 30000
+    onTriggered: { if (!setupProc.running) setupProc.running = true }
+  }
+
+  Process {
     id: syncProc
     command: [service.supervisor, "8", "65536", "65536", "--", service.helper, "sync"]
     onExited: {

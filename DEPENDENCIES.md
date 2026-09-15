@@ -1,6 +1,6 @@
 # Dependency audit
 
-Floating Mode has no vendored libraries, package-manager install hooks, telemetry, or runtime network dependency.
+Floating Mode has no vendored libraries, package-manager install hooks, or telemetry. Window management works locally; first-start setup and native ABI rebuilds require network access.
 
 ## Runtime dependencies
 
@@ -11,15 +11,17 @@ Floating Mode has no vendored libraries, package-manager install hooks, telemetr
 | Quickshell Qt/QML imports | Hosts `BarWidget.qml` and `Service.qml` | Omarchy Shell |
 | `hyprctl` | Reads clients and monitors; applies window transitions | Hyprland package |
 | `jq` | Safely calculates logical monitor and window geometry | Omarchy base packages |
+| `flock` (util-linux) | Detects an active setup runner to prevent duplicate setup terminals | Standard Omarchy installation |
+| `omarchy launch terminal` | Opens the one-time interactive setup when needed | Standard Omarchy installation |
 | `perl` | Opens and validates state-file descriptors without following links or blocking on special files | Arch Linux base packages |
 
-Runtime operation is local and uses the current user's permissions.
+Window operation is local and uses the current user's permissions. On activation, missing native setup automatically opens the existing installer in a terminal; that setup can access GitHub and request sudo as described below. Persistent attempt and lock files live in `$XDG_STATE_HOME/omarchy-floating-mode/setup/`.
 
-## Explicit one-time installer dependencies
+## Native setup installer dependencies
 
 | Dependency | Purpose |
 | --- | --- |
-| `hyprpm` | Selects the official `hyprbars` commit compatible with the installed Hyprland ABI |
+| `hyprpm` | Registers the pinned official plugins repository and manages native plugin loading |
 | `git` | Clones that exact official source commit and applies the bundled patch |
 | `make`, `gcc`, `g++`, `pkg-config` | Builds `hyprbars.so`, the bundled Aero snap module, and its geometry tests |
 | `cmake`, `cpio` | Required by `hyprpm` for headers and plugin management |

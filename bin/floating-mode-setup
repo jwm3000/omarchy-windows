@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+plugin_dir="$(dirname -- "$script_dir")"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-floating-mode"
+setup_dir="$state_home/setup"
+state_helper="$script_dir/floating-mode-state"
+supervisor="$script_dir/floating-mode-run"
+installer="$plugin_dir/contrib/install-hyprbars"
+command_name="${1:-status}"
+
+# Persistent attempt state prevents shell hot reloads and login restarts from
+# repeatedly opening terminals after a cancelled or failed installation.
+umask 077
+mkdir -p -- "$state_home"
+if ! mkdir -m 700 -- "$setup_dir" 2>/dev/null; then
+  [[ -d "$setup_dir" && ! -L "$setup_dir" && "$(stat -c %u "$setup_dir")" == "$(id -u)" ]] || exit 1
+  mode="$(stat -c %a "$setup_dir")"
+  (( (8#$mode & 077) == 0 )) || exit 1
+fi
+for name in attempted queued launch.lock run.lock; do
+  if [[ -e "$setup_dir/$name" || -L "$setup_dir/$name" ]]; then
+    "$state_helper" check "$setup_dir/$name"
+  fi
+done
+
+ipc() { "$supervisor" 3 65536 65536 -- hyprctl "$@"; }
+
+check_ready() {
+  local version installed_abi running_abi plugins
+  # Do not launch installation merely because the compositor is unavailable.
+  version="$(ipc version -j)" || return 2
+  installed_abi="$("$supervisor" 3 65536 65536 -- Hyprland --version-json | jq -er '.abiHash | select(type == "string" and length > 0)')" || return 2
+  # A package update may require a new login before plugins can be loaded.
+  running_abi="$(jq -r '.abiHash // empty' <<<"$version")"
+  if [[ -n "$running_abi" && "$running_abi" != "$installed_abi" ]]; then return 3; fi
+  [[ -f "$state_home/native-abi" && "$(<"$state_home/native-abi")" == "$installed_abi" ]] || return 1
+  [[ -f "$config_home/hypr/floating-mode.lua" ]] || return 1
+  plugins="$(ipc plugins list)" || return 2
+  [[ "$plugins" == *hyprbars* && "$plugins" == *omarchy-windows-snap* ]] || return 1
+  "$script_dir/floating-mode" integration-check >/dev/null || return 1
+}
+
+is_running() {
+  "$state_helper" truncate "$setup_dir/run.lock"
+  ! flock -n "$setup_dir/run.lock" true
+}
+
+status() {
+  local result=0 queued_at
+  if is_running; then echo running; return; fi
+  if [[ -f "$setup_dir/queued" ]]; then
+    queued_at="$(stat -c %Y "$setup_dir/queued")"
+    if (( $(date +%s) - queued_at < 60 )); then echo running; return; fi
+  fi
+  check_ready >/dev/null 2>&1 || result=$?
+  case "$result" in
+    0) echo ready;;
+    2) echo unavailable;;
+    3) echo restart-required;;
+    *) if [[ -f "$setup_dir/attempted" ]]; then echo failed; else echo required; fi;;
+  esac
+}
+
+case "$command_name" in
+  status) status;;
+  auto|retry)
+    if [[ "${FLOATING_SETUP_LAUNCH_LOCK:-}" != 1 ]]; then
+      export FLOATING_SETUP_LAUNCH_LOCK=1
+      exec "$state_helper" try-lock-exec "$setup_dir/launch.lock" "$0" "$command_name"
+    fi
+    current="$(status)"
+    case "$current" in
+      unavailable) exit 75;;
+      ready|running|restart-required) exit 0;;
+    esac
+    if [[ "$command_name" == auto && -f "$setup_dir/attempted" ]]; then exit 0; fi
+    "$state_helper" truncate "$setup_dir/attempted"
+    "$state_helper" truncate "$setup_dir/queued"
+    # The terminal-side runner acquires a separate installation lock so setup
+    # remains protected even if the desktop launcher closes inherited FDs.
+    if ! omarchy launch terminal "$0" run; then
+      rm -f -- "$setup_dir/queued"
+      echo 'Floating Mode: could not open the setup terminal. Use Setup in the plugin settings to retry.' >&2
+      exit 1
+    fi
+    ;;
+  run)
+    if [[ "${FLOATING_SETUP_RUN_LOCK:-}" != 1 ]]; then
+      export FLOATING_SETUP_RUN_LOCK=1
+      exec "$state_helper" try-lock-exec "$setup_dir/run.lock" "$0" run
+    fi
+    rm -f -- "$setup_dir/queued"
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    result=0
+    check_ready >/dev/null 2>&1 || result=$?
+    if [[ "$result" == 0 ]]; then exit 0; fi
+    echo 'Floating Mode setup: installing native titlebars, snapping and Lua integration.'
+    echo 'The installer may ask for your sudo password. Keep this terminal open until it finishes.'
+    if [[ "$result" != 2 && "$result" != 3 ]] && "$installer" && check_ready; then
+      echo 'Floating Mode is ready. You can use the bar button now.'
+      exit 0
+    fi
+    echo 'Setup did not complete. Review the errors above. After a Hyprland update, log out and back in before retrying.'
+    echo 'Use Setup in the Floating Mode settings to retry.'
+    if [[ -t 0 ]]; then read -r -p 'Press Enter to close this terminal.' _ || true; fi
+    exit 1
+    ;;
+  *) echo 'usage: floating-mode-setup status|auto|retry|run' >&2; exit 2;;
+esac
