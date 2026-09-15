@@ -76,6 +76,22 @@ omarchy bar move io.github.rawritude.floating-mode --section right
 
 The final command is intentionally separate because Omarchy does not execute installation hooks or privileged commands when adding a plugin. Read [`contrib/install-hyprbars`](contrib/install-hyprbars) before running it if you want to review every system change.
 
+## Troubleshooting initial setup
+
+The separate `contrib/install-hyprbars` step is required for switching window mode too: it installs the Lua rules used by the helper. Adding the bar widget alone does not complete setup.
+
+If activation reports missing or incomplete integration, run these diagnostics in your Hyprland session:
+
+```bash
+hyprctl version
+hyprctl configerrors
+hyprctl eval 'return type(omarchy_floating_mode_opaque_rule)'
+```
+
+A `nil` result means the rule is not loaded. Run the integration installer shown in the error, and check its output for missing build tools, compilation failures, or configuration errors. Native module compatibility depends on the installed Hyprland ABI and the pinned upstream source; a newer version may need source changes.
+
+Activation failures remove newly created enabled markers. Windows already changed before a failure may remain floating; their recovery ledger is retained for a subsequent successful activation and deactivation. Other enabled workspaces retain their status.
+
 ## Usage
 
 Click the overlapping-windows icon in the Omarchy bar:
@@ -208,6 +224,7 @@ The bundled `omarchy-windows-snap` plugin handles drag zones, previews, focused-
 omarchy plugin validate .
 qmllint -I /usr/share/omarchy/shell BarWidget.qml Service.qml
 bash -n bin/floating-mode contrib/install-hyprbars contrib/rebuild-after-update
+python -m unittest discover -s tests -v
 make -C contrib/aero-snap test all
 ```
 

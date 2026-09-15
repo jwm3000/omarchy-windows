@@ -27,6 +27,7 @@ BarWidget {
   property bool snapBusy: false
   property bool settingsOpen: false
   property string lastError: ""
+  property string modeActionError: ""
   readonly property string windowGlyph: String.fromCodePoint(0xF05B2)
   readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") !== ""
     ? Quickshell.env("XDG_CONFIG_HOME") : Quickshell.env("HOME") + "/.config"
@@ -62,6 +63,7 @@ BarWidget {
     if (actionProc.running) return
     busy = true
     lastError = ""
+    modeActionError = ""
     // Toggle against the helper's atomically checked runtime marker. Basing the
     // command on floatingMode can send the wrong action when a status poll is
     // still reporting the previous state.
@@ -163,12 +165,16 @@ BarWidget {
     id: actionProc
     stderr: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.lastError = String(text || "").trim()
+      onStreamFinished: root.modeActionError = String(text || "").trim()
     }
     onExited: function(code) {
       root.busy = false
-      if (code !== 0 && root.lastError === "")
-        root.lastError = root.localized("Fenstermodus konnte nicht geändert werden", "Could not change window mode")
+      Qt.callLater(function() {
+        if (code !== 0)
+          root.lastError = root.modeActionError || root.localized(
+            "Fenstermodus konnte nicht geändert werden (Exitcode " + code + ")",
+            "Could not change window mode (exit code " + code + ")")
+      })
       // Discard any poll that started before the action and force a new read.
       if (uiStatusProc.running) uiStatusProc.running = false
       Qt.callLater(root.refresh)

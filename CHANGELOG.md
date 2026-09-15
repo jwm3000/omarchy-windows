@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.2 — 2026-09-15
+
+- Check required Lua rules and functions before enabling Floating Mode and show the integration installer path when setup is missing or incomplete
+- Preserve Hyprland error output and exit codes instead of hiding compositor failures
+- Reset newly created activation markers on failures and timeouts while preserving other enabled workspaces and the recovery ledger
+- Collect toggle diagnostics separately from status polling and retain a fallback error with the process exit code
+- Add isolated activation regression tests covering missing setup, runtime failure, timeout, successful activation, and existing workspace state
+
 ## 1.9.1 — 2026-09-11
 
 - Kept remote hyprbars acquisition, detached full-commit checkout, exact HEAD verification, patch application, and build in one fail-closed chain so the marketplace can prove that no mutable source is executed

@@ -26,6 +26,9 @@ managed_max_bytes=8192
 managed_max_entries=256
 temporary_files=()
 hyprctl_binary=""
+enable_pending=false
+enable_created_global=false
+enable_created_workspace=""
 
 cleanup_temporary_files() {
   ((${#temporary_files[@]} == 0)) || rm -f -- "${temporary_files[@]}"
@@ -35,7 +38,22 @@ register_temporary_file() {
   temporary_files+=("$1")
 }
 
-trap cleanup_temporary_files EXIT
+finish_operation() {
+  local result=$?
+  if [[ "$enable_pending" == true && "$result" != 0 ]]; then
+    # Stop advertising a failed activation. Keep the ledger so a subsequent
+    # operation can still recover windows changed before the IPC failure.
+    [[ -z "$enable_created_workspace" ]] || rm -f -- "$enable_created_workspace"
+    if [[ "$enable_created_global" == true ]]; then rm -f -- "$enabled_file"; fi
+    printf 'floating-mode: activation failed; newly enabled status was reset. Some windows may already have changed.\n' >&2
+  fi
+  cleanup_temporary_files
+  return "$result"
+}
+
+trap finish_operation EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 
 die() {
@@ -180,13 +198,39 @@ require_tools() {
   hyprctl_binary="$(command -v hyprctl)" || { echo "hyprctl is required" >&2; exit 1; }
   command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
   command -v perl >/dev/null 2>&1 || { echo "perl is required" >&2; exit 1; }
+  [[ -x "$state_helper" ]] || { echo "floating-mode-state is missing or not executable" >&2; exit 1; }
   [[ -x "$process_supervisor" ]] || { echo "floating-mode-run is required" >&2; exit 1; }
 }
 
 # Every compositor IPC runs in a separately supervised process group. A stuck
 # socket can therefore neither block the service forever nor leave descendants.
 hyprctl() {
-  "$process_supervisor" 3 1048576 65536 -- "$hyprctl_binary" "$@"
+  local output result
+  if output="$("$process_supervisor" 3 1048576 65536 -- "$hyprctl_binary" "$@")"; then
+    printf '%s\n' "$output"
+  else
+    result=$?
+    printf 'floating-mode: hyprctl %s failed (exit %s)\n' "${1:-}" "$result" >&2
+    [[ -z "$output" ]] || printf '%s\n' "$output" >&2
+    return "$result"
+  fi
+}
+
+require_integration() {
+  if ! hyprctl eval '
+    assert(omarchy_floating_mode_opaque_rule ~= nil
+      and omarchy_floating_mode_open_rule ~= nil
+      and omarchy_floating_mode_browser_rule ~= nil
+      and type(omarchy_floating_mode_set_global_enabled) == "function"
+      and type(omarchy_floating_mode_set_global_focus_border) == "function"
+      and type(omarchy_floating_mode_set_workspace_enabled) == "function"
+      and type(omarchy_floating_mode_disable_workspace_rules) == "function"
+      and type(omarchy_floating_mode_disable_all_workspace_rules) == "function",
+      "Floating Mode Lua integration is missing or incomplete")
+  ' >/dev/null; then
+    printf 'floating-mode: Cannot use the Lua integration. Check hyprctl configerrors and the Hyprland version. If setup is missing or outdated, run in a terminal: "%s/contrib/install-hyprbars"\n' "$(dirname -- "$script_dir")" >&2
+    return 1
+  fi
 }
 
 valid_address() {
@@ -850,20 +894,25 @@ sync_windows() {
 
 enable_mode() {
   local workspace_id marker
+  require_integration
   workspace_id="$(active_workspace_id)"
   if all_workspaces_enabled && state_file_exists "$enabled_file"; then
     sync_windows
     return 0
   fi
+  enable_pending=true
   if ! state_file_exists "$enabled_file"; then
-    truncate_state_file "$managed_file"
+    # Preserve a recovery ledger from a previously interrupted activation.
+    if ! state_file_exists "$managed_file"; then truncate_state_file "$managed_file"; fi
+    enable_created_global=true
     truncate_state_file "$enabled_file"
   fi
   if all_workspaces_enabled; then
     rm -f -- "$workspace_file"
   else
     marker="$(workspace_marker "$workspace_id")"
-    state_file_exists "$marker" && return 0
+    if state_file_exists "$marker"; then enable_pending=false; return 0; fi
+    enable_created_workspace="$marker"
     truncate_state_file "$marker"
   fi
   # Floating windows must remain resizable even when border resizing is
@@ -872,6 +921,7 @@ enable_mode() {
   apply_mouse_resize_context
   if all_workspaces_enabled; then sync_windows; else sync_windows "$workspace_id"; fi
   apply_focus_border_preference
+  enable_pending=false
 }
 
 disable_all_modes() {
