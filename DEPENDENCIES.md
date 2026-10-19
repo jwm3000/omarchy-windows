@@ -21,14 +21,15 @@ Window operation is local and uses the current user's permissions. On activation
 
 | Dependency | Purpose |
 | --- | --- |
-| `hyprpm` | Registers the pinned official plugins repository and manages native plugin loading |
+| `hyprpm` | Registers the pinned official plugins repository and manages native plugin loading; separate `hyprpm` package since `hyprland 0.56.2-4` |
 | `git` | Clones that exact official source commit and applies the bundled patch |
 | `make`, `gcc`, `g++`, `pkg-config` | Builds `hyprbars.so`, the bundled Aero snap module, and its geometry tests |
 | `cmake`, `cpio` | Required by `hyprpm` for headers and plugin management |
-| `sudo` | Runs the bundled descriptor-based installer that replaces or restores only the cached `hyprbars.so` and repairs narrowly scoped root-owned HyprPM account-cache metadata |
+| `pacman` | Installs missing installer packages (`hyprpm`, `base-devel`, `cmake`, `cpio`, `git`, `jq`, `pkgconf`) with `--needed`, only from an interactive terminal |
+| `sudo` | Runs `pacman` for missing packages and the bundled descriptor-based installer that replaces or restores only the cached `hyprbars.so` and repairs narrowly scoped root-owned HyprPM account-cache metadata |
 | `sed`, `grep`, `awk`, `sha256sum`, `cut`, `mktemp` | Installer validation, module naming, metadata parsing, and temporary workspace handling |
 
-The installer verifies these commands before beginning. It needs network access only for the pinned clone of `https://github.com/hyprwm/hyprland-plugins` (and initial HyprPM registration when hyprbars is absent). A user-owned Omarchy `post-update` hook compares the installed Hyprland ABI hash with the last successful build and invokes the same installer only after an ABI change.
+The installer verifies these commands before beginning and, in an interactive terminal that is not an unattended `omarchy update -y`, installs the packages providing missing ones. It needs network access only for the pinned clone of `https://github.com/hyprwm/hyprland-plugins` (and initial HyprPM registration when hyprbars is absent). A user-owned Omarchy `post-update` hook compares the installed Hyprland ABI hash with the last successful build and invokes the same installer only after an ABI change.
 
 ## Files and privileges
 

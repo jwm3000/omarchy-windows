@@ -56,12 +56,12 @@ The titlebar uses the official Hyprland `hyprbars` plugin with small bundled hov
 - `hyprpm`, `git`, `make`, `cmake`, `cpio`, `pkg-config`, `gcc`, and `g++`
 - `sudo` permission to replace the cached `hyprbars.so`
 
-The installer checks every required command before making changes. It builds both modules for the installed Hyprland ABI, verifies the snap geometry tests, saves the original hyprbars module, and restores it during uninstall. It also installs a lightweight Omarchy `post-update` hook. The hook compares Hyprland's complete ABI hash after system packages are updated and rebuilds the native integrations only when that hash changed. The upstream hyprbars source is pinned to reviewed commit `7644cecdb947060682891a0db2a0cdc5c0b9e704`.
+The installer checks every required command before making changes. When run in a terminal it installs missing Arch packages itself (`hyprpm`, `base-devel`, `cmake`, `cpio`, `git`, `jq`, `pkgconf`). Since `hyprland 0.56.2-4`, `hyprpm` is a separate, optional package; without it Hyprland cannot load hyprbars at login, so setup and the post-update hook install it when it is missing. It builds both modules for the installed Hyprland ABI, verifies the snap geometry tests, saves the original hyprbars module, and restores it during uninstall. It also installs a lightweight Omarchy `post-update` hook. The hook compares Hyprland's complete ABI hash after system packages are updated and rebuilds the native integrations only when that hash changed. The upstream hyprbars source is pinned to reviewed commit `7644cecdb947060682891a0db2a0cdc5c0b9e704`.
 
 On a minimal Arch-based installation, missing build tools can be installed with:
 
 ```bash
-sudo pacman -S --needed base-devel cmake cpio git jq pkgconf
+sudo pacman -S --needed hyprpm base-devel cmake cpio git jq pkgconf
 ```
 
 See [DEPENDENCIES.md](DEPENDENCIES.md) for the complete audited dependency and privilege list.
@@ -177,7 +177,7 @@ Update Floating Mode with Omarchy:
 omarchy plugin update io.github.rawritude.floating-mode
 ```
 
-Version 1.10.0 checks integration when its service starts. An already working installation with a matching ABI does not rebuild. If an automatic setup attempt previously failed or was cancelled, use **Start / retry setup** in the settings.
+Since version 1.10.0, Floating Mode checks integration when its service starts. An already working installation with a matching ABI does not rebuild. If an automatic setup attempt previously failed or was cancelled, use **Start / retry setup** in the settings.
 
 The setup check does not compare native source revisions. If a release changes `contrib/hyprbars.lua`, `contrib/aero-snap/`, or the bundled hyprbars patches while the ABI stays the same, run the installer manually:
 
@@ -225,7 +225,7 @@ The bundled `omarchy-windows-snap` plugin handles drag zones, previews, focused-
 - Window management and setup checks run locally as the current user
 - The plugin reads window geometry and metadata from `hyprctl`, never window contents
 - No telemetry or analytics; window management does not require network access
-- Enabling the plugin can automatically open the native setup installer in a visible terminal. Setup and ABI rebuilds access GitHub through `hyprpm` and `git` and may request a `sudo` password
+- Enabling the plugin can automatically open the native setup installer in a visible terminal. Setup and ABI rebuilds access GitHub through `hyprpm` and `git` and may request a `sudo` password; the installer and post-update hook also use `sudo pacman -S --needed` for missing build packages such as `hyprpm`
 - `sudo` is used only by the descriptor-verified cache helper to install or restore `/var/cache/hyprpm/<account-from-real-uid>/hyprland-plugins/hyprbars.so`; if HyprPM recreated that fixed account cache as root, the helper also returns its two cache directories and exact `state.toml` files to that account
 - The Aero snap module is built from this repository's MIT-licensed source and installed without privileges below `$XDG_DATA_HOME/omarchy-floating-mode`
 - User files include `~/.config/hypr/floating-mode.lua`, its `require(...)` line, preferences in `~/.config/omarchy-floating-mode/`, the user-local snap module, and the post-update hook

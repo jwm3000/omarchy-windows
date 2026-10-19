@@ -39,15 +39,49 @@ cleanup() {
 }
 trap cleanup EXIT
 
+package_for_command() {
+  case "$1" in
+    # Hyprland 0.56.2-4 moved hyprpm out of the hyprland package.
+    hyprpm) echo hyprpm ;;
+    git) echo git ;;
+    make|gcc|g++) echo base-devel ;;
+    cmake) echo cmake ;;
+    cpio) echo cpio ;;
+    pkg-config) echo pkgconf ;;
+    jq) echo jq ;;
+    *) return 1 ;;
+  esac
+}
+
+# Install missing Arch packages only when someone can answer sudo; automatic
+# and unattended runs report what is missing instead.
+install_missing_packages() {
+  local command_name package packages=()
+  for command_name in "$@"; do
+    command -v "$command_name" >/dev/null 2>&1 && continue
+    package="$(package_for_command "$command_name")" || continue
+    [[ " ${packages[*]} " == *" $package "* ]] || packages+=("$package")
+  done
+  ((${#packages[@]} > 0)) || return 0
+  [[ -t 0 && "${OMARCHY_UPDATE_UNATTENDED:-}" != 1 ]] && command -v pacman >/dev/null 2>&1 || return 0
+  printf 'Installing missing packages: %s\n' "${packages[*]}"
+  sudo pacman -S --needed --noconfirm -- "${packages[@]}"
+}
+
 require_commands() {
-  local command_name missing=0
+  local command_name package missing=0 packages=()
+  install_missing_packages "$@"
   for command_name in "$@"; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
       printf 'Missing required command: %s\n' "$command_name" >&2
       missing=1
+      package="$(package_for_command "$command_name")" && packages+=("$package")
     fi
   done
   ((missing == 0)) || {
+    if ((${#packages[@]} > 0)); then
+      printf 'Install them with: sudo pacman -S --needed %s\n' "$(printf '%s\n' "${packages[@]}" | sort -u | tr '\n' ' ')" >&2
+    fi
     echo "Install the missing build tools and run this installer again." >&2
     exit 1
   }

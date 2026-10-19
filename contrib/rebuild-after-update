@@ -17,7 +17,18 @@ installed_abi="$(Hyprland --version-json 2>/dev/null | jq -er '.abiHash | select
 }
 
 if [[ -f "$abi_state" ]] && [[ "$(<"$abi_state")" == "$installed_abi" ]]; then
-  exit 0
+  command -v hyprpm >/dev/null 2>&1 && exit 0
+  # Hyprland 0.56.2-4 split hyprpm into its own package. The cached modules
+  # still match the ABI; without hyprpm the login autostart cannot load them.
+  echo "Floating Mode: hyprpm is no longer installed; it loads the titlebar module at login."
+  if [[ -t 0 && "${OMARCHY_UPDATE_UNATTENDED:-}" != 1 ]] && sudo pacman -S --needed --noconfirm hyprpm; then
+    hyprpm reload -n >/dev/null 2>&1 || true
+    exit 0
+  fi
+  command -v notify-send >/dev/null 2>&1 \
+    && notify-send -u critical "Floating Mode needs attention" "Install the hyprpm package: sudo pacman -S hyprpm" \
+    || true
+  exit 1
 fi
 
 echo "Floating Mode: Hyprland ABI changed; rebuilding native integrations."

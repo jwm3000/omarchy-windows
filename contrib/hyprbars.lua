@@ -74,7 +74,7 @@ omarchy_floating_mode_open_rule = hl.window_rule({
   match = {
     -- Omarchy's screensaver has its own fullscreen rule. Excluding it keeps
     -- Floating Mode from clearing fullscreen and shrinking it to 70%.
-    class = "negative:^org\\.omarchy\\.screensaver$",
+    class = "negative:^(org\\.omarchy\\.screensaver|org\\.gnome\\.NautilusPreviewer)$",
     float = false,
   },
   tag = "+floating-mode-managed",
@@ -123,7 +123,7 @@ function omarchy_floating_mode_set_global_enabled(enabled, focus_border_enabled,
     omarchy_floating_mode_open_no_focus_rule = hl.window_rule({
       name = "floating-mode-open-small-no-focus",
       match = {
-        class = "negative:^org\\.omarchy\\.screensaver$",
+        class = "negative:^(org\\.omarchy\\.screensaver|org\\.gnome\\.NautilusPreviewer)$",
         float = false,
       },
       tag = "+floating-mode-managed",
@@ -157,7 +157,7 @@ function omarchy_floating_mode_set_workspace_enabled(workspace_id, enabled, focu
       open = hl.window_rule({
         name = "floating-mode-open-workspace-" .. label,
         match = {
-          class = "negative:^org\\.omarchy\\.screensaver$",
+          class = "negative:^(org\\.omarchy\\.screensaver|org\\.gnome\\.NautilusPreviewer)$",
           workspace = key,
           float = false,
         },
@@ -170,7 +170,7 @@ function omarchy_floating_mode_set_workspace_enabled(workspace_id, enabled, focu
       open_no_focus = hl.window_rule({
         name = "floating-mode-open-no-focus-workspace-" .. label,
         match = {
-          class = "negative:^org\\.omarchy\\.screensaver$",
+          class = "negative:^(org\\.omarchy\\.screensaver|org\\.gnome\\.NautilusPreviewer)$",
           workspace = key,
           float = false,
         },
@@ -312,3 +312,23 @@ hl.plugin.hyprbars.add_button({
   icon = "□",
   action = [[hyprctl dispatch 'hl.dsp.window.fullscreen({ mode = "maximized", action = "toggle" })']],
 })
+
+-- A third button sits to the left of maximize (hyprbars lays out right-to-left).
+-- Floating Mode's service mirrors OmaDock enablement into this session marker
+-- and reloads the button list only when that state changes.
+local dock_button_path = (os.getenv("XDG_RUNTIME_DIR") or "/nonexistent")
+  .. "/omarchy-floating-mode/omadock-button"
+local dock_button_file = io.open(dock_button_path, "r")
+omarchy_floating_mode_omadock_button = dock_button_file ~= nil
+if dock_button_file then
+  dock_button_file:close()
+  hl.plugin.hyprbars.add_button({
+    bg_color = "rgba(00000000)",
+    fg_color = "rgba(ffffffff)",
+    size = 21,
+    icon = "−",
+    -- hyprbars focuses the clicked window before invoking its button action.
+    -- Let OmaDock record the origin and create the minimized preview itself.
+    action = "omarchy-shell omadock minimizeActive",
+  })
+end

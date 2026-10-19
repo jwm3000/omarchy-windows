@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.11.0 — 2026-10-19
+
+- Support Omarchy 4.0.5 with Hyprland 0.56.2-4, where `hyprpm` moved into its own optional package and was dropped on update, which left hyprbars unloaded at login
+- Install missing installer packages (`hyprpm`, `base-devel`, `cmake`, `cpio`, `git`, `jq`, `pkgconf`) from an interactive setup terminal and print the exact `pacman` command otherwise
+- Report setup as required while `hyprpm` is missing so the setup terminal repairs it
+- Let the post-update hook reinstall `hyprpm` and reload the cached modules when the ABI is unchanged, instead of silently skipping
+- Show a minimize button left of maximize only while the OmaDock overlay is enabled; use its native minimize action so previews and restoration retain their normal behavior
+- Check OmaDock enablement only when activating Floating Mode; periodic window repair does not query OmaDock
+- Leave the GNOME Sushi/Nautilus quick preview (`org.gnome.NautilusPreviewer`) out of Floating Mode like the screensaver
+- Fall back for theme colors during Omarchy 4.0.5's first bar binding pass to avoid `Unable to assign [undefined] to QColor` warnings
+
 ## 1.10.0 — 2026-09-15
 
 - Automatically check native setup on activation and open the integration installer in a terminal when required

@@ -38,6 +38,9 @@ check_ready() {
   if [[ -n "$running_abi" && "$running_abi" != "$installed_abi" ]]; then return 3; fi
   [[ -f "$state_home/native-abi" && "$(<"$state_home/native-abi")" == "$installed_abi" ]] || return 1
   [[ -f "$config_home/hypr/floating-mode.lua" ]] || return 1
+  # Without hyprpm the login autostart cannot load hyprbars (separate package
+  # since Hyprland 0.56.2-4); the installer adds it.
+  command -v hyprpm >/dev/null 2>&1 || return 1
   plugins="$(ipc plugins list)" || return 2
   [[ "$plugins" == *hyprbars* && "$plugins" == *omarchy-windows-snap* ]] || return 1
   "$script_dir/floating-mode" integration-check >/dev/null || return 1

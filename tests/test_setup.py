@@ -28,6 +28,7 @@ echo abi1 > "$XDG_STATE_HOME/omarchy-floating-mode/native-abi"
 ''')
         mocks = self.root / 'mocks'
         mocks.mkdir()
+        self.write(mocks / 'hyprpm', '#!/bin/bash\n')
         self.write(mocks / 'Hyprland', '#!/bin/bash\necho \'{"abiHash":"abi1"}\'\n')
         self.write(mocks / 'hyprctl', '''#!/bin/bash
 [[ "${UNAVAILABLE:-0}" == 0 ]] || exit 1
@@ -73,6 +74,22 @@ if [[ "${EXECUTE_SETUP:-0}" == 1 ]]; then "$3" "$4"; fi
         self.run_setup('auto', EXECUTE_SETUP='1')
         self.assertEqual(self.run_setup('status', LOADED_PLUGINS='hyprbars').stdout.strip(), 'failed')
         self.assertEqual(self.run_setup('status', FAIL_LUA='1').stdout.strip(), 'failed')
+
+    def test_missing_hyprpm_requires_setup_even_with_loaded_modules(self):
+        self.run_setup('auto', EXECUTE_SETUP='1')
+        (self.root / 'mocks/hyprpm').unlink()
+        # Hide a system hyprpm too: hyprland 0.56.2-4 no longer installs it.
+        system = self.root / 'system'
+        system.mkdir()
+        for directory in os.environ['PATH'].split(':'):
+            if not os.path.isdir(directory):
+                continue
+            for entry in os.scandir(directory):
+                target = system / entry.name
+                if entry.name != 'hyprpm' and not target.exists():
+                    target.symlink_to(entry.path)
+        path = str(self.root / 'mocks') + ':' + str(system)
+        self.assertEqual(self.run_setup('status', PATH=path).stdout.strip(), 'failed')
 
     def test_queued_launch_is_not_repeated_and_can_be_retried(self):
         self.run_setup('auto')

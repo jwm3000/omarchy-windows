@@ -18,6 +18,10 @@ BarWidget {
   property bool allWorkspaces: true
   property string leftSnapMode: "quarter"
   property string rightSnapMode: "quarter"
+  // Omarchy 4.0.5 creates bar widgets before the theme palette has loaded;
+  // the fallbacks keep the first binding pass from assigning undefined.
+  readonly property color themeAccent: Color.accent || "transparent"
+  readonly property color themeBackground: Color.background || "transparent"
   property bool snapGapsEnabled: true
   property bool busy: false
   property bool focusBorderBusy: false
@@ -319,7 +323,7 @@ BarWidget {
     bar: root.bar
     text: root.windowGlyph
     active: root.floatingMode
-    activeColor: Color.accent
+    activeColor: root.themeAccent
     dimmed: root.busy
     tooltipText: root.lastError !== ""
       ? root.lastError
@@ -374,12 +378,12 @@ BarWidget {
         width: parent.width
         height: Style.space(34)
         visible: root.setupStatus === "required" || root.setupStatus === "failed"
-        color: Color.accent
+        color: root.themeAccent
         radius: Style.space(4)
         Text {
           anchors.centerIn: parent
           text: root.localized("Setup starten / wiederholen", "Start / retry setup")
-          color: Color.background
+          color: root.themeBackground
           font.family: root.bar.fontFamily
         }
         MouseArea { anchors.fill: parent; onClicked: root.retrySetup() }
@@ -393,7 +397,7 @@ BarWidget {
           : root.localized("Umschalten gilt nur für die aktuelle Arbeitsfläche", "Switching applies only to the current workspace")
         checked: root.allWorkspaces
         foreground: root.bar.foreground
-        accent: Color.accent
+        accent: root.themeAccent
         fontFamily: root.bar.fontFamily
         enabled: !root.scopeBusy
         opacity: enabled ? 1.0 : 0.55
@@ -408,7 +412,7 @@ BarWidget {
           : root.localized("Aktives Fenster nutzt die inaktive Rahmenfarbe", "Active window uses the inactive border color")
         checked: root.focusBorderEnabled
         foreground: root.bar.foreground
-        accent: Color.accent
+        accent: root.themeAccent
         fontFamily: root.bar.fontFamily
         enabled: root.floatingMode && !root.focusBorderBusy
         opacity: enabled ? 1.0 : 0.55
@@ -423,7 +427,7 @@ BarWidget {
           : root.localized("Alle Fenster vollständig deckend", "All windows fully opaque")
         checked: root.transparencyEnabled
         foreground: root.bar.foreground
-        accent: Color.accent
+        accent: root.themeAccent
         fontFamily: root.bar.fontFamily
         enabled: root.floatingMode && !root.transparencyBusy
         opacity: enabled ? 1.0 : 0.55
@@ -438,7 +442,7 @@ BarWidget {
           : root.localized("Titelleiste ist vollständig deckend", "Titlebar is fully opaque")
         checked: root.titlebarTransparencyEnabled
         foreground: root.bar.foreground
-        accent: Color.accent
+        accent: root.themeAccent
         fontFamily: root.bar.fontFamily
         enabled: root.floatingMode && !root.titlebarTransparencyBusy
         opacity: enabled ? 1.0 : 0.55
@@ -455,7 +459,7 @@ BarWidget {
               : root.localized("Ändern am Fensterrand ist ausgeschaltet", "Border resizing is disabled"))
         checked: root.floatingMode || root.mouseResizeEnabled
         foreground: root.bar.foreground
-        accent: Color.accent
+        accent: root.themeAccent
         fontFamily: root.bar.fontFamily
         enabled: !root.floatingMode && !root.mouseResizeBusy
         opacity: enabled ? 1.0 : 0.55
@@ -482,7 +486,7 @@ BarWidget {
           : root.localized("Eingerastete Fenster nutzen den ganzen Platz", "Snapped windows use all available space")
         checked: root.snapGapsEnabled
         foreground: root.bar.foreground
-        accent: Color.accent
+        accent: root.themeAccent
         fontFamily: root.bar.fontFamily
         enabled: !root.snapBusy
         opacity: enabled ? 1.0 : 0.55
@@ -503,8 +507,8 @@ BarWidget {
         ]
         value: root.leftSnapMode
         foreground: root.bar.foreground
-        background: Color.background
-        accent: Color.accent
+        background: root.themeBackground
+        accent: root.themeAccent
         fontFamily: root.bar.fontFamily
         focusable: !root.snapBusy
         enabled: !root.snapBusy
@@ -526,8 +530,8 @@ BarWidget {
         ]
         value: root.rightSnapMode
         foreground: root.bar.foreground
-        background: Color.background
-        accent: Color.accent
+        background: root.themeBackground
+        accent: root.themeAccent
         fontFamily: root.bar.fontFamily
         focusable: !root.snapBusy
         enabled: !root.snapBusy

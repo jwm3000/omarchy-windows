@@ -22,6 +22,7 @@ titlebar_transparency_disabled_file="$settings_dir/titlebar-transparency-disable
 mouse_resize_disabled_file="$settings_dir/mouse-resize-disabled"
 current_workspace_only_file="$settings_dir/current-workspace-only"
 keybindings_marker="$state_dir/keybindings"
+dock_button_marker="$state_dir/omadock-button"
 managed_max_bytes=8192
 managed_max_entries=256
 temporary_files=()
@@ -298,6 +299,33 @@ transition_window_commands() {
 
 hyprbars_loaded() {
   hyprctl plugins list 2>/dev/null | grep -q 'hyprbars'
+}
+
+# The titlebar button follows the enabled overlay, not merely an installation.
+# Check only when enabling Floating Mode; reload only on state transitions.
+sync_dock_button() {
+  local wanted=false current=false config="$config_home/omarchy/shell.json"
+  if [[ -f "$config" ]]; then
+    wanted="$(jq -er 'any(.plugins[]?; type == "object" and .id == "omadock" and .enabled != false)' "$config")" || {
+      # jq exits 1 for a valid false result. A partially written/invalid config
+      # should leave the current button intact until the next repair pass.
+      [[ "$wanted" == false ]] || return 0
+    }
+  fi
+  [[ -f "$config_home/omarchy/plugins/omadock/manifest.json" ]] || wanted=false
+  state_file_exists "$dock_button_marker" && current=true
+  [[ "$wanted" != "$current" ]] || return 0
+  if [[ "$wanted" == true ]]; then
+    truncate_state_file "$dock_button_marker"
+  else
+    rm -f -- "$dock_button_marker"
+  fi
+  # hyprbars only clears its button list during a config reload.
+  if ! hyprctl reload >/dev/null; then
+    if [[ "$current" == true ]]; then truncate_state_file "$dock_button_marker"
+    else rm -f -- "$dock_button_marker"; fi
+    return 1
+  fi
 }
 
 set_titlebars() {
@@ -895,6 +923,7 @@ sync_windows() {
 enable_mode() {
   local workspace_id marker
   require_integration
+  sync_dock_button
   workspace_id="$(active_workspace_id)"
   if all_workspaces_enabled && state_file_exists "$enabled_file"; then
     sync_windows
