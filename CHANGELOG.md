@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.11.1 — 2026-10-19
+
+- Load the Lua integration without errors while hyprbars is not loaded (before HyprPM runs at login, or while `hyprpm` is missing): titlebar settings, titlebar window rules and buttons are skipped instead of raising `unknown config key 'plugin.hyprbars.*'` and `attempt to index a nil value (field 'hyprbars')`
+- Add a regression test that evaluates the template without hyprbars
+
 ## 1.11.0 — 2026-10-19
 
 - Support Omarchy 4.0.5 with Hyprland 0.56.2-4, where `hyprpm` moved into its own optional package and was dropped on update, which left hyprbars unloaded at login

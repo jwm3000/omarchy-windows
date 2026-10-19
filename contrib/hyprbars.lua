@@ -1,6 +1,20 @@
 -- Native titlebars and snapping for Floating Mode. Loaded after Omarchy defaults.
 hl.plugin.load([====[@SNAP_PLUGIN_PATH@]====])
 
+-- hyprbars is loaded by `hyprpm reload` at login and HyprPM reparses this file
+-- afterwards. Until then (or while the separate hyprpm package is missing),
+-- skip titlebar settings so the rest of Floating Mode loads without errors.
+local hyprbars_loaded = hl.plugin.hyprbars ~= nil
+
+local function titlebar_rule(spec)
+  if hyprbars_loaded then return hl.window_rule(spec) end
+  return { set_enabled = function() end }
+end
+
+local function add_titlebar_button(button)
+  if hyprbars_loaded then hl.plugin.hyprbars.add_button(button) end
+end
+
 hl.config({
   general = {
     -- Native directional resizing for floating windows: sides change only
@@ -23,28 +37,6 @@ hl.config({
   },
 
   plugin = {
-    hyprbars = {
-      enabled = false,
-      -- Slightly opaque while retaining a hint of the background beneath it.
-      bar_color = "rgba(333333c0)",
-      bar_height = 30,
-      bar_title_enabled = true,
-      bar_text_size = 14,
-      bar_text_weight = 600,
-      bar_text_font = "Sans",
-      bar_text_align = "left",
-      bar_buttons_alignment = "right",
-      bar_part_of_window = true,
-      -- Let Hyprland draw one continuous window border around both the
-      -- native titlebar decoration and the application surface.
-      bar_precedence_over_border = true,
-      bar_padding = 8,
-      bar_button_padding = 6,
-      icon_on_hover = false,
-      button_hover_bg_color = "rgba(ffffff24)",
-      close_button_hover_bg_color = "rgba(ff4d4d48)",
-    },
-
     -- Aero-style edge and corner zones are implemented in the compositor so
     -- titlebar drags and Super+drag share the same scale-aware geometry.
     omarchy_windows_snap = {
@@ -64,6 +56,35 @@ hl.config({
     },
   },
 })
+
+-- Without hyprbars these keys are unknown and would raise config errors.
+if hyprbars_loaded then
+  hl.config({
+    plugin = {
+      hyprbars = {
+        enabled = false,
+        -- Slightly opaque while retaining a hint of the background beneath it.
+        bar_color = "rgba(333333c0)",
+        bar_height = 30,
+        bar_title_enabled = true,
+        bar_text_size = 14,
+        bar_text_weight = 600,
+        bar_text_font = "Sans",
+        bar_text_align = "left",
+        bar_buttons_alignment = "right",
+        bar_part_of_window = true,
+        -- Let Hyprland draw one continuous window border around both the
+        -- native titlebar decoration and the application surface.
+        bar_precedence_over_border = true,
+        bar_padding = 8,
+        bar_button_padding = 6,
+        icon_on_hover = false,
+        button_hover_bg_color = "rgba(ffffff24)",
+        close_button_hover_bg_color = "rgba(ff4d4d48)",
+      },
+    },
+  })
+end
 
 -- Apply the final floating geometry while a new tiled window is being mapped,
 -- before Hyprland can present a full-work-area tiled frame. The shell helper
@@ -206,7 +227,7 @@ function omarchy_floating_mode_set_workspace_enabled(workspace_id, enabled, focu
         },
         opacity = "1.0 override 1.0 override",
       }),
-      titlebar_transparent = hl.window_rule({
+      titlebar_transparent = titlebar_rule({
         name = "floating-mode-titlebar-transparent-workspace-" .. label,
         match = {
           tag = "floating-mode-managed",
@@ -214,7 +235,7 @@ function omarchy_floating_mode_set_workspace_enabled(workspace_id, enabled, focu
         },
         ["hyprbars:bar_color"] = "rgba(333333c0)",
       }),
-      titlebar_opaque = hl.window_rule({
+      titlebar_opaque = titlebar_rule({
         name = "floating-mode-titlebar-opaque-workspace-" .. label,
         match = {
           tag = "floating-mode-managed",
@@ -285,7 +306,7 @@ hl.window_rule({
 })
 
 -- Buttons are declared right-to-left: close, then maximize.
-hl.plugin.hyprbars.add_button({
+add_titlebar_button({
   bg_color = "rgba(00000000)",
   fg_color = "rgba(ffffffff)",
   size = 21,
@@ -305,7 +326,7 @@ hl.window_rule({
   border_size = 0,
 })
 
-hl.plugin.hyprbars.add_button({
+add_titlebar_button({
   bg_color = "rgba(00000000)",
   fg_color = "rgba(ffffffff)",
   size = 21,
@@ -322,7 +343,7 @@ local dock_button_file = io.open(dock_button_path, "r")
 omarchy_floating_mode_omadock_button = dock_button_file ~= nil
 if dock_button_file then
   dock_button_file:close()
-  hl.plugin.hyprbars.add_button({
+  add_titlebar_button({
     bg_color = "rgba(00000000)",
     fg_color = "rgba(ffffffff)",
     size = 21,
